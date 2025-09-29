@@ -153,6 +153,8 @@ def normalize_booking(booking: Dict, is_online: bool) -> Dict:
     if payment_status not in ["Fully Paid", "Partially Paid"]:
         st.warning(f"Skipping booking {booking_id} with invalid payment status: {payment_status}")
         return None
+    booking_status_field = 'booking_status' if is_online else 'plan_status'
+    booking_status = sanitize_string(booking.get(booking_status_field))
     try:
         normalized = {
             'booking_id': booking_id,
@@ -162,7 +164,7 @@ def normalize_booking(booking: Dict, is_online: bool) -> Dict:
             'total_pax': booking.get('total_pax'),
             'check_in': date.fromisoformat(booking.get('check_in')) if booking.get('check_in') else None,
             'check_out': date.fromisoformat(booking.get('check_out')) if booking.get('check_out') else None,
-            'booking_status': sanitize_string(booking.get('booking_status')),
+            'booking_status': booking_status,
             'payment_status': payment_status,
             'remarks': sanitize_string(booking.get('remarks')),
             'type': 'online' if is_online else 'direct'
@@ -183,11 +185,13 @@ def load_combined_bookings(property: str, start_date: date, end_date: date) -> L
         end_str = end_date.isoformat()
         direct = supabase.table("reservations").select("*").in_("property_name", variants)\
             .lte("check_in", end_str).gt("check_out", start_str)\
-            .in_("payment_status", ["Fully Paid", "Partially Paid"]).execute().data
+            .in_("payment_status", ["Fully Paid", "Partially Paid"])\
+            .in_("plan_status", ["Confirmed", "Completed"]).execute().data
         st.info(f"Fetched {len(direct)} direct bookings for {property} from {start_str} to {end_str}")
         online = supabase.table("online_reservations").select("*").in_("property", variants)\
             .lte("check_in", end_str).gt("check_out", start_str)\
-            .in_("payment_status", ["Fully Paid", "Partially Paid"]).execute().data
+            .in_("payment_status", ["Fully Paid", "Partially Paid"])\
+            .in_("booking_status", ["Confirmed", "Completed"]).execute().data
         st.info(f"Fetched {len(online)} online bookings for {property} from {start_str} to {end_str}")
         normalized = [b for b in [normalize_booking(b, False) for b in direct] + [normalize_booking(b, True) for b in online] if b]
         if len(normalized) < len(direct) + len(online):
