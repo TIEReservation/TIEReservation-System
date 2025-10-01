@@ -51,7 +51,7 @@ def load_online_reservations_from_supabase():
         st.error(f"Error loading online reservations: {e}")
         return []
 
-def show_edit_online_reservations():
+def show_edit_online_reservations(selected_booking_id=None):
     """Display edit online reservations page."""
     st.title("✏️ Edit Online Reservations")
     
@@ -70,7 +70,10 @@ def show_edit_online_reservations():
     display_columns = ["property", "booking_id", "guest_name", "check_in", "check_out", "room_no", "room_type", "booking_status"]
     
     st.subheader("Select Reservation to Edit")
-    selected_booking_id = st.selectbox("Select Booking ID", df["booking_id"].tolist())
+    booking_id_list = df["booking_id"].tolist()
+    # Set default index based on selected_booking_id if provided and valid
+    default_index = booking_id_list.index(selected_booking_id) if selected_booking_id in booking_id_list else 0
+    selected_booking_id = st.selectbox("Select Booking ID", booking_id_list, index=default_index)
     
     if selected_booking_id:
         edit_index = df[df["booking_id"] == selected_booking_id].index[0]
@@ -179,8 +182,8 @@ def show_edit_online_reservations():
             
             mode_of_booking = st.selectbox("MOB", mob_options, index=mob_index)
         with col2:
-            # Booking Status with Pending as default
-            booking_status_options = ["Pending", "Confirmed", "Cancelled", "Completed", "No Show"]
+            # Booking Status with Pending as default, including Follow-up
+            booking_status_options = ["Pending", "Follow-up", "Confirmed", "Cancelled", "Completed", "No Show"]
             current_status = reservation.get("booking_status", "Pending")
             try:
                 status_index = booking_status_options.index(current_status)
@@ -251,6 +254,7 @@ def show_edit_online_reservations():
                     st.session_state.online_reservations[edit_index] = {**reservation, **updated_reservation}
                     st.session_state.online_edit_mode = False
                     st.session_state.online_edit_index = None
+                    st.query_params.clear()  # Clear query params after update
                     st.success(f"✅ Reservation {reservation['booking_id']} updated successfully!")
                     st.rerun()
                 else:
@@ -262,6 +266,7 @@ def show_edit_online_reservations():
                         st.session_state.online_reservations.pop(edit_index)
                         st.session_state.online_edit_mode = False
                         st.session_state.online_edit_index = None
+                        st.query_params.clear()  # Clear query params after deletion
                         st.success(f"🗑️ Reservation {reservation['booking_id']} deleted successfully!")
                         st.rerun()
                     else:
