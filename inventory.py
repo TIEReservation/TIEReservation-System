@@ -12,7 +12,6 @@ supabase: Client = create_client(st.secrets["supabase"]["url"], st.secrets["supa
 property_mapping = {
     "La Millionaire Luxury Resort": "La Millionaire Resort",
 }
-
 reverse_mapping = {}
 for variant, canonical in property_mapping.items():
     reverse_mapping.setdefault(canonical, []).append(variant)
@@ -215,12 +214,20 @@ def is_special_category(room_no: str) -> bool:
     return room_no in ["No Show", "Day Use 1", "Day Use 2", "Day Use 3", "Day Use 4"]
 
 def parse_inventory_numbers(room_no: str, property: str, available: List[str], three_bedroom: List[str]) -> tuple[List[str], List[str]]:
-    """Parse and validate inventory numbers from room_no, handling comma-separated values and ranges like '101to103'."""
+    """Parse and validate inventory numbers from room_no, handling comma-separated values, ranges like '101to103', and combined rooms like '101&102'."""
     valid = []
     invalid = []
-    nums = room_no.split(",") if "," in room_no else [room_no]
+    # Split on commas first, then handle ampersands within each part
+    parts = room_no.split(",") if "," in room_no else [room_no]
+    nums = []
+    for part in parts:
+        part = part.strip()
+        # Handle ampersand-separated rooms (e.g., "101&102" -> ["101", "102"])
+        if "&" in part:
+            nums.extend([n.strip() for n in part.split("&")])
+        else:
+            nums.append(part)
     for num in nums:
-        num = num.strip()
         # Handle range format like '101to103'
         if 'to' in num:
             try:
@@ -300,7 +307,7 @@ def assign_inventory_numbers(bookings: List[Dict], property: str) -> tuple[List[
 
 def create_inventory_table(assigned: List[Dict], overbookings: List[Dict], property: str) -> pd.DataFrame:
     """Create a DataFrame with inventory numbers, bookings, and overbookings with hyperlinks."""
-    columns = ["Inventory No", "Room No", "Booking ID", "Guest Name", "Mobile No", "Total Pax", 
+    columns = ["Inventory No", "Room No", "Booking ID", "Guest Name", "Mobile No", "Total Pax",
                "Check-in Date", "Check-out Date", "Days", "Booking Status", "Payment Status", "Remarks"]
     fallback = {"all": ["Unknown"], "three_bedroom": []}
     inventory = PROPERTY_INVENTORY.get(property, fallback)
@@ -329,8 +336,8 @@ def create_inventory_table(assigned: List[Dict], overbookings: List[Dict], prope
     if overbookings:
         overbooking_ids = ", ".join(format_booking_id(b) for b in overbookings)
         overbooking_str = ", ".join(f"{sanitize_string(b['room_no'])} ({sanitize_string(b['booking_id'])}, {sanitize_string(b['guest_name'])})" for b in overbookings)
-        df_data.append({"Inventory No": "Overbookings", "Room No": overbooking_str, "Booking ID": overbooking_ids, 
-                        "Guest Name": "", "Mobile No": "", "Total Pax": "", "Check-in Date": "", "Check-out Date": "", 
+        df_data.append({"Inventory No": "Overbookings", "Room No": overbooking_str, "Booking ID": overbooking_ids,
+                        "Guest Name": "", "Mobile No": "", "Total Pax": "", "Check-in Date": "", "Check-out Date": "",
                         "Days": "", "Booking Status": "", "Payment Status": "", "Remarks": ""})
     return pd.DataFrame(df_data, columns=columns)
 
