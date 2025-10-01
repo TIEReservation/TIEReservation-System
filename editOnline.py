@@ -136,15 +136,29 @@ def show_edit_online_reservations():
         with col3:
             booking_confirmed_on = st.date_input("Booking Confirmed on", value=date.fromisoformat(reservation.get("booking_confirmed_on")) if reservation.get("booking_confirmed_on") else None)
 
-        # Row 6: Total Tariff (booking_amount), Advance Amount (total_payment_made), Balance Due
-        col1, col2, col3 = st.columns(3)
+        # Row 6: Total Tariff (booking_amount), Advance Amount, Advance MOP, Balance Due, Balance MOP
+        col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 1])
         with col1:
             booking_amount = st.number_input("Total Tariff", value=safe_float(reservation.get("booking_amount", 0.0)))
         with col2:
             total_payment_made = st.number_input("Advance Amount", value=safe_float(reservation.get("total_payment_made", 0.0)))
         with col3:
+            advance_mop_options = ["Cash", "Card", "UPI", "Bank Transfer", "ClearTrip", "TIE Management", "Booking.com", "Pending", "Other", "Agoda", "MMT", "Expedia", "Cleartrip", "Goibibo"]
+            advance_mop = st.selectbox("Advance MOP", advance_mop_options, index=advance_mop_options.index(reservation.get("advance_mop", "Pending")) if reservation.get("advance_mop") in advance_mop_options else 7)
+            if advance_mop == "Other":
+                custom_advance_mop = st.text_input("Custom Advance MOP", value=reservation.get("advance_mop", "") if reservation.get("advance_mop") not in advance_mop_options else "")
+            else:
+                custom_advance_mop = None
+        with col4:
             balance_due = booking_amount - total_payment_made
             st.text_input("Balance Due", value=balance_due, disabled=True)
+        with col5:
+            balance_mop_options = ["Pending", "Cash", "Card", "UPI", "Bank Transfer", "Other"]
+            balance_mop = st.selectbox("Balance MOP", balance_mop_options, index=balance_mop_options.index(reservation.get("balance_mop", "Pending")) if reservation.get("balance_mop") in balance_mop_options else 0)
+            if balance_mop == "Other":
+                custom_balance_mop = st.text_input("Custom Balance MOP", value=reservation.get("balance_mop", "") if reservation.get("balance_mop") not in balance_mop_options else "")
+            else:
+                custom_balance_mop = None
 
         # Row 7: MOB (mode_of_booking), Booking Status, Payment Status
         col1, col2, col3 = st.columns(3)
@@ -176,27 +190,10 @@ def show_edit_online_reservations():
         with col3:
             payment_status = st.selectbox("Payment Status", ["Not Paid", "Fully Paid", "Partially Paid"], index=["Not Paid", "Fully Paid", "Partially Paid"].index(reservation.get("payment_status", "Not Paid")))
 
-        # Row 8: Advance MOP, Balance MOP
-        col1, col2 = st.columns(2)
-        with col1:
-            advance_mop_options = ["Cash", "Card", "UPI", "Bank Transfer", "ClearTrip", "TIE Management", "Booking.com", "Pending", "Other", "Agoda", "MMT", "Expedia", "Cleartrip", "Goibibo"]
-            advance_mop = st.selectbox("Advance MOP", advance_mop_options, index=advance_mop_options.index(reservation.get("advance_mop", "Pending")) if reservation.get("advance_mop") in advance_mop_options else 7)
-            if advance_mop == "Other":
-                custom_advance_mop = st.text_input("Custom Advance MOP", value=reservation.get("advance_mop", "") if reservation.get("advance_mop") not in advance_mop_options else "")
-            else:
-                custom_advance_mop = None
-        with col2:
-            balance_mop_options = ["Pending", "Cash", "Card", "UPI", "Bank Transfer", "Other"]
-            balance_mop = st.selectbox("Balance MOP", balance_mop_options, index=balance_mop_options.index(reservation.get("balance_mop", "Pending")) if reservation.get("balance_mop") in balance_mop_options else 0)
-            if balance_mop == "Other":
-                custom_balance_mop = st.text_input("Custom Balance MOP", value=reservation.get("balance_mop", "") if reservation.get("balance_mop") not in balance_mop_options else "")
-            else:
-                custom_balance_mop = None
-
-        # Row 9: Remarks
+        # Row 8: Remarks
         remarks = st.text_area("Remarks", value=reservation.get("remarks", ""))
 
-        # Row 10: Submitted by, Modified by
+        # Row 9: Submitted by, Modified by
         col1, col2 = st.columns(2)
         with col1:
             submitted_by = st.text_input("Submitted by", value=reservation.get("submitted_by", ""))
