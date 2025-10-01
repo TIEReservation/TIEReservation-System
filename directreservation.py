@@ -43,7 +43,7 @@ def load_property_room_map():
             "Double Room with Terrace": ["801"]
         },
         "La Paradise Residency": {
-            "Double Room": ["101", "102", "103", "301", "304"],
+            "Double Room": ["101", "102", "103", "301", "302", "304"],
             "Family Room": ["201", "203"],
             "Triple Room": ["202", "303"]
         },
