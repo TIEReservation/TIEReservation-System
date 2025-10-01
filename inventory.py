@@ -215,23 +215,54 @@ def is_special_category(room_no: str) -> bool:
     return room_no in ["No Show", "Day Use 1", "Day Use 2", "Day Use 3", "Day Use 4"]
 
 def parse_inventory_numbers(room_no: str, property: str, available: List[str], three_bedroom: List[str]) -> tuple[List[str], List[str]]:
-    """Parse and validate inventory numbers from room_no, handling comma-separated values."""
-    nums = room_no.split(",") if "," in room_no else [room_no]
+    """Parse and validate inventory numbers from room_no, handling comma-separated values and ranges like '101to103'."""
     valid = []
     invalid = []
+    nums = room_no.split(",") if "," in room_no else [room_no]
     for num in nums:
-        if is_special_category(num):
-            valid.append(num)
-        elif num in ['D1', 'D2', 'D3', "D4", "D5"] and three_bedroom:
-            inv = three_bedroom.pop(0)
-            valid.append(inv)
-            if inv in available:
-                available.remove(inv)
-        elif num in available:
-            valid.append(num)
-            available.remove(num)
+        num = num.strip()
+        # Handle range format like '101to103'
+        if 'to' in num:
+            try:
+                start, end = num.split('to')
+                start = start.strip()
+                end = end.strip()
+                # Ensure both start and end are numeric and in the same format
+                if start.isdigit() and end.isdigit():
+                    start_num = int(start)
+                    end_num = int(end)
+                    # Generate all room numbers in the range (inclusive)
+                    for i in range(start_num, end_num + 1):
+                        room = str(i)
+                        if is_special_category(room):
+                            valid.append(room)
+                        elif room in ['D1', 'D2', 'D3', "D4", "D5"] and three_bedroom:
+                            inv = three_bedroom.pop(0) if three_bedroom else room
+                            valid.append(inv)
+                            if inv in available:
+                                available.remove(inv)
+                        elif room in available:
+                            valid.append(room)
+                            available.remove(room)
+                        else:
+                            invalid.append(room)
+                else:
+                    invalid.append(num)
+            except ValueError:
+                invalid.append(num)
         else:
-            invalid.append(num)
+            if is_special_category(num):
+                valid.append(num)
+            elif num in ['D1', 'D2', 'D3', "D4", "D5"] and three_bedroom:
+                inv = three_bedroom.pop(0) if three_bedroom else num
+                valid.append(inv)
+                if inv in available:
+                    available.remove(inv)
+            elif num in available:
+                valid.append(num)
+                available.remove(num)
+            else:
+                invalid.append(num)
     return valid, invalid
 
 def assign_inventory_numbers(bookings: List[Dict], property: str) -> tuple[List[Dict], List[Dict]]:
