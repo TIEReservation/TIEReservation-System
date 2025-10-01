@@ -14,7 +14,20 @@ except KeyError as e:
 def update_online_reservation_in_supabase(booking_id, updated_reservation):
     """Update an online reservation in Supabase."""
     try:
-        response = supabase.table("online_reservations").update(updated_reservation).eq("booking_id", booking_id).execute()
+        # Truncate string fields to prevent database errors
+        truncated_reservation = updated_reservation.copy()
+        string_fields_50 = [
+            "property", "booking_id", "guest_name", "guest_phone", "room_no", 
+            "room_type", "rate_plans", "booking_source", "segment", "staflexi_status",
+            "mode_of_booking", "booking_status", "payment_status", "submitted_by", 
+            "modified_by", "advance_mop", "balance_mop"
+        ]
+        for field in string_fields_50:
+            if field in truncated_reservation:
+                truncated_reservation[field] = str(truncated_reservation[field])[:50] if truncated_reservation[field] else ""
+        if "remarks" in truncated_reservation:
+            truncated_reservation["remarks"] = str(truncated_reservation["remarks"])[:500] if truncated_reservation["remarks"] else ""
+        response = supabase.table("online_reservations").update(truncated_reservation).eq("booking_id", booking_id).execute()
         return bool(response.data)
     except Exception as e:
         st.error(f"Error updating online reservation: {e}")
@@ -163,10 +176,27 @@ def show_edit_online_reservations():
         with col3:
             payment_status = st.selectbox("Payment Status", ["Not Paid", "Fully Paid", "Partially Paid"], index=["Not Paid", "Fully Paid", "Partially Paid"].index(reservation.get("payment_status", "Not Paid")))
 
-        # Row 8: Remarks
+        # Row 8: Advance MOP, Balance MOP
+        col1, col2 = st.columns(2)
+        with col1:
+            advance_mop_options = ["Cash", "Card", "UPI", "Bank Transfer", "ClearTrip", "TIE Management", "Booking.com", "Pending", "Other", "Agoda", "MMT", "Expedia", "Cleartrip", "Goibibo"]
+            advance_mop = st.selectbox("Advance MOP", advance_mop_options, index=advance_mop_options.index(reservation.get("advance_mop", "Pending")) if reservation.get("advance_mop") in advance_mop_options else 7)
+            if advance_mop == "Other":
+                custom_advance_mop = st.text_input("Custom Advance MOP", value=reservation.get("advance_mop", "") if reservation.get("advance_mop") not in advance_mop_options else "")
+            else:
+                custom_advance_mop = None
+        with col2:
+            balance_mop_options = ["Pending", "Cash", "Card", "UPI", "Bank Transfer", "Other"]
+            balance_mop = st.selectbox("Balance MOP", balance_mop_options, index=balance_mop_options.index(reservation.get("balance_mop", "Pending")) if reservation.get("balance_mop") in balance_mop_options else 0)
+            if balance_mop == "Other":
+                custom_balance_mop = st.text_input("Custom Balance MOP", value=reservation.get("balance_mop", "") if reservation.get("balance_mop") not in balance_mop_options else "")
+            else:
+                custom_balance_mop = None
+
+        # Row 9: Remarks
         remarks = st.text_area("Remarks", value=reservation.get("remarks", ""))
 
-        # Row 9: Submitted by, Modified by
+        # Row 10: Submitted by, Modified by
         col1, col2 = st.columns(2)
         with col1:
             submitted_by = st.text_input("Submitted by", value=reservation.get("submitted_by", ""))
@@ -208,6 +238,8 @@ def show_edit_online_reservations():
                     "mode_of_booking": mode_of_booking,
                     "booking_status": booking_status,
                     "payment_status": payment_status,
+                    "advance_mop": custom_advance_mop if advance_mop == "Other" else advance_mop,
+                    "balance_mop": custom_balance_mop if balance_mop == "Other" else balance_mop,
                     "remarks": remarks,
                     "submitted_by": submitted_by,
                     "modified_by": modified_by,
