@@ -215,9 +215,23 @@ def is_special_category(room_no: str) -> bool:
     return room_no in ["No Show", "Day Use 1", "Day Use 2", "Day Use 3", "Day Use 4"]
 
 def parse_inventory_numbers(room_no: str, property: str, available: List[str], three_bedroom: List[str]) -> tuple[List[str], List[str]]:
-    """Parse and validate inventory numbers from room_no, handling comma-separated values, ranges like '101to103', and combined rooms like '101&102'."""
+    """Parse and validate inventory numbers from room_no, handling comma-separated values, ranges like '101to103', combined rooms like '101&102', and 'EVA' for entire villa."""
     valid = []
     invalid = []
+    inventory = PROPERTY_INVENTORY.get(property, {"all": ["Unknown"], "three_bedroom": []})
+    
+    # Check if room_no is 'EVA' (case-insensitive) for entire villa
+    if room_no.strip().upper() == "EVA":
+        # Assign all non-special inventory numbers for the property
+        valid = [num for num in inventory["all"] if not is_special_category(num)]
+        # Remove assigned numbers from available and three_bedroom lists
+        for num in valid:
+            if num in available:
+                available.remove(num)
+            if num in three_bedroom:
+                three_bedroom.remove(num)
+        return valid, invalid
+
     # Split on commas first, then handle ampersands within each part
     parts = room_no.split(",") if "," in room_no else [room_no]
     nums = []
