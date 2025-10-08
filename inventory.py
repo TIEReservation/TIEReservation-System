@@ -161,7 +161,15 @@ def normalize_booking(booking: Dict, is_online: bool) -> Dict:
         days = booking.get('room_nights' if is_online else 'no_of_days')
         room_charges = booking.get('ota_net_amount' if is_online else 'total_tariff')
         total = booking.get('booking_amount' if is_online else 'total_tariff')
-        receivable = booking.get('room_revenue' if is_online else 'total_tariff')
+        # Determine receivable based on booking source for online bookings
+        if is_online:
+            booking_source = sanitize_string(booking.get('booking_source'))
+            if booking_source in ["STAYFLEXI_GHA", "Stayflexi Booking Engine"]:
+                receivable = booking.get('room_revenue', 0)
+            else:
+                receivable = booking.get('ota_net_amount', 0)
+        else:
+            receivable = booking.get('total_tariff', 0)
         normalized = {
             'booking_id': booking_id,
             'room_no': sanitize_string(booking.get('room_no')),
@@ -347,7 +355,7 @@ def create_inventory_table(assigned: List[Dict], overbookings: List[Dict], prope
     columns = [
         "Inventory No", "Room No", "Booking ID", "Guest Name", "Mobile No", "Total Pax",
         "Check In", "Check Out", "Days", "MOB", "Room Charges", "GST", "Total",
-        "Commision", "Tax Deduction", "Receivable", "Per Night", "Advance",
+        "Commision", "Receivable", "Per Night", "Advance",
         "Advance Mop", "Balance", "Balance Mop", "Plan", "Booking Status",
         "Payment Status", "Submitted by", "Modified by", "Remarks"
     ]
@@ -376,7 +384,6 @@ def create_inventory_table(assigned: List[Dict], overbookings: List[Dict], prope
                         "GST": sanitize_string(b["gst"]),
                         "Total": sanitize_string(b["total"]),
                         "Commision": sanitize_string(b["commission"]),
-                        "Tax Deduction": sanitize_string(b["tax_deduction"]),
                         "Receivable": sanitize_string(b["receivable"]),
                         "Per Night": f"{b['per_night']:.2f}" if b["per_night"] else "0.00",
                         "Advance": sanitize_string(b["advance"]),
@@ -409,7 +416,6 @@ def create_inventory_table(assigned: List[Dict], overbookings: List[Dict], prope
             "GST": "",
             "Total": "",
             "Commision": "",
-            "Tax Deduction": "",
             "Receivable": "",
             "Per Night": "",
             "Advance": "",
