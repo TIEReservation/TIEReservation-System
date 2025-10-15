@@ -3,7 +3,13 @@ import os
 from supabase import create_client, Client
 from directreservation import show_new_reservation_form, show_reservations, show_edit_reservations, show_analytics, load_reservations_from_supabase
 from online_reservation import show_online_reservations, load_online_reservations_from_supabase
-from editOnline import show_edit_online_reservations
+try:
+    from editOnline import show_edit_online_reservations
+    edit_online_available = True
+except Exception as e:
+    st.error(f"Failed to import editOnline module: {e}. 'Edit Online Reservations' page will be disabled.")
+    show_edit_online_reservations = None
+    edit_online_available = False
 from inventory import show_daily_status
 from dms import show_dms
 
@@ -105,9 +111,11 @@ def main():
     st.title("🏢 TIE Reservations")
     st.markdown("---")
     st.sidebar.title("Navigation")
-    page_options = ["Direct Reservations", "View Reservations", "Edit Reservations", "Online Reservations", "Edit Online Reservations", "Daily Status", "Daily Management Status"]
+    page_options = ["Direct Reservations", "View Reservations", "Edit Reservations", "Online Reservations", "Daily Status", "Daily Management Status"]
     if st.session_state.role == "Management":
         page_options.append("Analytics")
+    if edit_online_available:
+        page_options.insert(4, "Edit Online Reservations")
     
     page = st.sidebar.selectbox("Choose a page", page_options, index=page_options.index(st.session_state.current_page) if st.session_state.current_page in page_options else 0, key="page_select")
     st.session_state.current_page = page
@@ -131,7 +139,7 @@ def main():
         show_edit_reservations()
     elif page == "Online Reservations":
         show_online_reservations()
-    elif page == "Edit Online Reservations":
+    elif page == "Edit Online Reservations" and edit_online_available:
         show_edit_online_reservations(st.session_state.selected_booking_id)
         if st.session_state.selected_booking_id:
             st.session_state.selected_booking_id = None
