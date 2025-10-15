@@ -44,14 +44,21 @@ def delete_online_reservation_in_supabase(booking_id):
 
 @st.cache_data
 def load_online_reservations_from_supabase():
-    """Load all online reservations from Supabase."""
+    """Load all online reservations from Supabase without limit."""
     try:
-        response = supabase.table("online_reservations").select("*").execute()
-        data = response.data if response.data else []
-        st.info(f"Loaded {len(data)} online reservations from Supabase")
-        if not data:
+        all_data = []
+        offset = 0
+        limit = 1000  # Supabase default max rows per request
+        while True:
+            response = supabase.table("online_reservations").select("*").range(offset, offset + limit - 1).execute()
+            data = response.data if response.data else []
+            all_data.extend(data)
+            if len(data) < limit:  # If fewer rows than limit, we've reached the end
+                break
+            offset += limit
+        if not all_data:
             st.warning("No online reservations found in the database.")
-        return data
+        return all_data
     except Exception as e:
         st.error(f"Error loading online reservations: {e}")
         return []
@@ -65,11 +72,23 @@ def load_properties():
             prop = r['property_name']
             if prop:
                 properties.add(prop)
-        st.info(f"Loaded {len(properties)} unique properties")
         return sorted(properties)
     except Exception as e:
         st.error(f"Error loading properties: {e}")
         return []
+
+def get_room_options(property_name):
+    """Return room number and room type options based on property."""
+    if property_name == "Millionaire":
+        room_numbers = ["Day Use 1", "Day Use 2", "Day Use 3", "Day Use 4", "Day Use 5", "No Show"]
+    else:
+        room_numbers = ["Day Use 1", "Day Use 2", "No Show"]
+    
+    def get_room_type(room_no):
+        return "No Show" if room_no == "No Show" else "Day Use"
+    
+    room_types = ["Day Use", "No Show"]
+    return room_numbers, room_types, get_room_type
 
 def show_edit_online_reservations(selected_booking_id=None):
     """Display edit online reservations page."""
@@ -161,9 +180,22 @@ def show_edit_online_reservations(selected_booking_id=None):
         # Row 4: Room No, Room Type, Breakfast (rate_plans), Booking Source
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            room_no = st.text_input("Room No", value=reservation.get("room_no", ""))
+            room_numbers, room_types, get_room_type = get_room_options(property_name)
+            current_room_no = reservation.get("room_no", "")
+            # Ensure current_room_no is in room_numbers, if not, add it as first option
+            if current_room_no and current_room_no not in room_numbers:
+                room_numbers.insert(0, current_room_no)
+            room_no_index = room_numbers.index(current_room_no) if current_room_no in room_numbers else 0
+            room_no = st.selectbox("Room No", room_numbers, index=room_no_index)
         with col2:
-            room_type = st.text_input("Room Type", value=reservation.get("room_type", ""))
+            # Determine default room type based on fetched or selected room_no
+            current_room_type = reservation.get("room_type", "")
+            default_room_type = get_room_type(room_no)
+            # If current_room_type is not in room_types, add it to maintain fetched value
+            if current_room_type and current_room_type not in room_types:
+                room_types.insert(0, current_room_type)
+            room_type_index = room_types.index(current_room_type if current_room_type in room_types else default_room_type)
+            room_type = st.selectbox("Room Type", room_types, index=room_type_index)
         with col3:
             rate_plans = st.text_input("Breakfast", value=reservation.get("rate_plans", ""))
         with col4:
