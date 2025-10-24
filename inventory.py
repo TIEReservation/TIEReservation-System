@@ -28,7 +28,39 @@ reverse_mapping = {}
 for variant, canonical in property_mapping.items():
     reverse_mapping.setdefault(canonical, []).append(variant)
 
-# Table CSS for non-wrapping, scrollable table
+# MOP (Mode of Payment) mapping
+mop_mapping = {
+    "UPI": ["UPI"],
+    "Cash": ["Cash"],
+    "Go-MMT": ["Goibibo", "MMT", "Go-MMT", "MAKEMYTRIP"],
+    "Agoda": ["Agoda"],
+    "NOT PAID": ["Not Paid"],
+    "Bank Transfer": ["Bank Transfer"],
+    "Stayflexi": ["STAYFLEXI_GHA"],
+    "Card Payment": ["Card"],
+    "Expedia": ["Expedia"],
+    "Cleartrip": ["Cleartrip"],
+    "Website": ["Stayflexi Booking Engine"]
+}
+
+# MOB (Mode of Booking) mapping for D.T.D and M.T.D Statistics
+mob_mapping = {
+    "Booking": ["BOOKING"],
+    "Direct": ["Direct"],
+    "Bkg-Direct": ["Bkg-Direct"],
+    "Agoda": ["Agoda"],
+    "Go-MMT": ["Goibibo", "MMT", "Go-MMT", "MAKEMYTRIP"],
+    "Walk-In": ["Walk-In"],
+    "TIE Group": ["TIE Group"],
+    "Stayflexi": ["STAYFLEXI_GHA"],
+    "Airbnb": ["Airbnb"],
+    "Social Media": ["Social Media"],
+    "Expedia": ["Expedia"],
+    "Cleartrip": ["Cleartrip"],
+    "Website": ["Stayflexi Booking Engine"]
+}
+
+# Table CSS for non-wrapping, scrollable table with reduced column width
 TABLE_CSS = """
 <style>
 .custom-scrollable-table {
@@ -44,7 +76,7 @@ TABLE_CSS = """
     white-space: nowrap;
     text-overflow: ellipsis;
     overflow: hidden;
-    max-width: 300px;
+    max-width: 150px;
     padding: 8px;
     border: 1px solid #ddd;
 }
@@ -246,7 +278,7 @@ def normalize_booking(booking: Dict, is_online: bool) -> Dict:
             "modified_by": modified_by,
             "remarks": remarks
         }
-        logging.info(f"Normalized booking {booking_id} for property {property_name}, room_no: {room_no}, check_in: {check_in}, check_out: {check_out}, days: {days}")
+        logging.info(f"Normalized booking {booking_id} for property {property_name}, room_no: {room_no}, check_in: {check_in}, check_out: {check_out}, days: {days}, balance_mop: {balance_mop}")
         return normalized
     except ValueError as e:
         logging.warning(f"Skipping booking {booking_id} due to date parsing error: {e}")
@@ -276,7 +308,7 @@ def load_combined_bookings(property: str, start_date: date, end_date: date) -> L
             direct_bookings.extend([normalize_booking(b, False) for b in (direct_response.data or []) if normalize_booking(b, False)])
             logging.info(f"Retrieved {len(direct_response.data or [])} direct bookings for {query_property}, {len([b for b in direct_bookings if b])} normalized")
         combined = [b for b in online_bookings + direct_bookings if b]
-        logging.info(f"Total combined bindings for {property}: {len(combined)}")
+        logging.info(f"Total combined bookings for {property}: {len(combined)}")
         return combined
     except Exception as e:
         st.error(f"Error loading bookings for {property}: {e}")
@@ -288,20 +320,23 @@ def generate_month_dates(year: int, month: int) -> List[date]:
     return [date(year, month, day) for day in range(1, num_days + 1)]
 
 def filter_bookings_for_day(bookings: List[Dict], target_date: date) -> List[Dict]:
-    """Filter active bookings on target_date, adding target_date for financial display logic."""
+    """Filter bookings to show on all dates from check-in to check-out (exclusive).
+    
+    Example: For a booking with check_in='2025-10-03' and check_out='2025-10-08' (5 days),
+    it will display on October 3, 4, 5, and 6, but NOT on October 7, 2025.
+    """
     filtered = []
     for b in bookings:
-        check_in_str = b["check_in"]
-        check_out_str = b["check_out"]
+        check_in_str = b.get("check_in", "")
+        check_out_str = b.get("check_out", "")
         try:
             check_in = date.fromisoformat(check_in_str) if check_in_str else None
             check_out = date.fromisoformat(check_out_str) if check_out_str else None
-            if check_in and check_out:
-                if check_in <= target_date <= check_out:
-                    b_copy = b.copy()
-                    b_copy['target_date'] = target_date
-                    filtered.append(b_copy)
-                    logging.info(f"Included booking {b.get('booking_id')} for {target_date}: check_in={check_in}, check_out={check_out}")
+            if check_in and check_out and target_date >= check_in and target_date < check_out:
+                b_copy = b.copy()
+                b_copy['target_date'] = target_date
+                filtered.append(b_copy)
+                logging.info(f"Included booking {b.get('booking_id')} for {target_date}: check_in={check_in}, check_out={check_out}")
         except ValueError as e:
             logging.warning(f"Skipping booking {b.get('booking_id', 'Unknown')} due to date parsing error: {e}")
     logging.info(f"Filtered {len(filtered)} bookings for target date {target_date}")
@@ -327,13 +362,12 @@ def assign_inventory_numbers(daily_bookings: List[Dict], property: str) -> tuple
             logging.warning(f"Booking {booking_id} moved to overbookings: invalid inventory {inventory_no}")
             continue
         inventory_no = [inventory[inventory_lower.index(r.lower())] for r in inventory_no]
-        num_rooms = len(inventory_no)
         inventory_no.sort()
-        base_pax = b['total_pax'] // num_rooms
-        remainder_pax = b['total_pax'] % num_rooms
+        base_pax = b['total_pax'] // len(inventory_no) if inventory_no else 0
+        remainder_pax = b['total_pax'] % len(inventory_no) if inventory_no else 0
         days = b.get('days', 1) or 1
-        per_night_per_room = b.get('receivable', 0.0) / num_rooms / days
-        if num_rooms == 1:
+        per_night_per_room = b.get('receivable', 0.0) / len(inventory_no) / days if inventory_no else 0.0
+        if len(inventory_no) == 1:
             b['inventory_no'] = inventory_no
             b['per_night'] = per_night_per_room
             b['is_primary'] = True
@@ -406,7 +440,8 @@ def create_inventory_table(assigned: List[Dict], overbookings: List[Dict], prope
                     "Payment Status": sanitize_string(b.get("payment_status", "")),
                     "Submitted by": sanitize_string(b.get("submitted_by", "")),
                     "Modified by": sanitize_string(b.get("modified_by", "")),
-                    "Remarks": sanitize_string(b.get("remarks", ""))
+                    "Remarks": sanitize_string(b.get("remarks", "")),
+                    "Balance Mop": sanitize_string(b.get("balance_mop", ""))
                 })
                 if b.get('is_primary', False) and is_first_date:
                     row.update({
@@ -419,7 +454,7 @@ def create_inventory_table(assigned: List[Dict], overbookings: List[Dict], prope
                         "Advance Mop": sanitize_string(b.get("advance_mop", "")),
                         "Balance": f"{b.get('balance', 0):.2f}"
                     })
-                logging.info(f"Added booking {booking_id} to inventory {inv}")
+                logging.info(f"Added booking {booking_id} to inventory {inv}, balance_mop: {b.get('balance_mop', '')}")
             except Exception as e:
                 st.error(f"Error updating row for inventory {inv} in booking {booking_id}: {e}")
                 continue
@@ -461,6 +496,191 @@ def create_inventory_table(assigned: List[Dict], overbookings: List[Dict], prope
             st.error(f"Error creating overbookings row: {e}")
 
     return pd.DataFrame(df_data, columns=columns)
+
+def compute_mop_report(daily_bookings: List[Dict], target_date: date) -> pd.DataFrame:
+    """Compute MOP report for the given day."""
+    mop_types = [
+        "UPI", "Cash", "Go-MMT", "Agoda", "NOT PAID", "Expenses",
+        "Bank Transfer", "Stayflexi", "Card Payment", "Expedia",
+        "Cleartrip", "Website"
+    ]
+    mop_data = {mop: 0.0 for mop in mop_types}
+    total_cash = 0.0
+    total = 0.0
+
+    for b in daily_bookings:
+        check_in = date.fromisoformat(b["check_in"]) if b["check_in"] else None
+        is_first_date = check_in == target_date if check_in else False
+        if not (b.get('is_primary', False) and is_first_date):
+            continue
+        advance_mop = sanitize_string(b.get("advance_mop", ""))
+        balance_mop = sanitize_string(b.get("balance_mop", ""))
+        advance = safe_float(b.get("advance", 0.0))
+        balance = safe_float(b.get("balance", 0.0))
+
+        # Map advance_mop and balance_mop to standardized MOP types
+        for standard_mop, variants in mop_mapping.items():
+            if advance_mop in variants:
+                mop_data[standard_mop] += advance
+                total += advance
+                if standard_mop == "Cash":
+                    total_cash += advance
+            if balance_mop in variants:
+                mop_data[standard_mop] += balance
+                total += balance
+                if standard_mop == "Cash":
+                    total_cash += balance
+
+    # Add Expenses (set to 0.0 as per requirement)
+    mop_data["Expenses"] = 0.0
+
+    # Add Total Cash and Total
+    mop_data["Total Cash"] = total_cash
+    mop_data["Total"] = total
+
+    # Create DataFrame
+    mop_df = pd.DataFrame(
+        [{"MOP": mop, "Amount": f"{amount:.2f}"}
+         for mop, amount in mop_data.items()],
+        columns=["MOP", "Amount"]
+    )
+    logging.info(f"MOP report for {target_date}: {mop_data}")
+    return mop_df
+
+def compute_statistics(bookings: List[Dict], property: str, target_date: date, month_dates: List[date]) -> tuple[pd.DataFrame, pd.DataFrame, Dict, pd.DataFrame]:
+    """Compute D.T.D, M.T.D, Summary statistics, and MOP report for bookings."""
+    mob_types = [
+        "Booking", "Direct", "Bkg-Direct", "Agoda", "Go-MMT", "Walk-In",
+        "TIE Group", "Stayflexi", "Airbnb", "Social Media", "Expedia",
+        "Cleartrip", "Website"
+    ]
+    inventory = PROPERTY_INVENTORY.get(property, {"all": ["Unknown"]})["all"]
+    total_inventory = len([inv for inv in inventory if not inv.startswith(("Day Use", "No Show"))])
+
+    # D.T.D calculations
+    dtd_data = {mob: {"rooms": 0, "value": 0.0, "arr": 0.0, "comm": 0.0} for mob in mob_types}
+    dtd_bookings = filter_bookings_for_day(bookings, target_date)
+    dtd_assigned, _ = assign_inventory_numbers(dtd_bookings, property)
+    total_rooms = 0
+    total_value = 0.0
+    total_pax = 0
+    total_gst = 0.0
+    total_comm = 0.0
+    tax_deduction = 0.0
+
+    for b in dtd_assigned:
+        raw_mob = sanitize_string(b.get("mob", "Unknown"))
+        # Map raw_mob to standardized MOB type (case-insensitive)
+        mob = "Booking"  # Default fallback
+        for standard_mob, variants in mob_mapping.items():
+            if raw_mob.upper() in [v.upper() for v in variants]:
+                mob = standard_mob
+                break
+        rooms = len(b.get("inventory_no", []))
+        value = b.get("receivable", 0.0) if b.get("is_primary", False) and b.get("target_date") == date.fromisoformat(b["check_in"]) else 0.0
+        comm = b.get("commission", 0.0) if b.get("is_primary", False) and b.get("target_date") == date.fromisoformat(b["check_in"]) else 0.0
+        dtd_data[mob]["rooms"] += rooms
+        dtd_data[mob]["value"] += value
+        dtd_data[mob]["comm"] += comm
+        total_rooms += rooms
+        total_value += value
+        total_pax += b.get("total_pax", 0)
+        total_gst += b.get("gst", 0.0) if b.get("is_primary", False) and b.get("target_date") == date.fromisoformat(b["check_in"]) else 0.0
+        total_comm += comm
+        logging.info(f"D.T.D booking {b.get('booking_id')} mapped mob '{raw_mob}' to '{mob}'")
+
+    for mob in mob_types:
+        rooms = dtd_data[mob]["rooms"]
+        dtd_data[mob]["arr"] = dtd_data[mob]["value"] / rooms if rooms > 0 else 0.0
+
+    dtd_data["Total"] = {
+        "rooms": total_rooms,
+        "value": total_value,
+        "arr": total_value / total_rooms if total_rooms > 0 else 0.0,
+        "comm": total_comm
+    }
+    dtd_df = pd.DataFrame(
+        [{"MOB": mob, "D.T.D Rooms": data["rooms"], "D.T.D Value": f"{data['value']:.2f}",
+          "D.T.D ARR": f"{data['arr']:.2f}", "D.T.D Comm": f"{data['comm']:.2f}"}
+         for mob, data in dtd_data.items()],
+        columns=["MOB", "D.T.D Rooms", "D.T.D Value", "D.T.D ARR", "D.T.D Comm"]
+    )
+
+    # M.T.D calculations
+    mtd_data = {mob: {"rooms": 0, "value": 0.0, "arr": 0.0, "comm": 0.0} for mob in mob_types}
+    mtd_rooms = 0
+    mtd_value = 0.0
+    mtd_pax = 0
+    mtd_gst = 0.0
+    mtd_comm = 0.0
+    mtd_tax_deduction = 0.0
+
+    for day in month_dates:
+        if day > target_date:
+            continue
+        daily_bookings = filter_bookings_for_day(bookings, day)
+        daily_assigned, _ = assign_inventory_numbers(daily_bookings, property)
+        for b in daily_assigned:
+            raw_mob = sanitize_string(b.get("mob", "Unknown"))
+            # Map raw_mob to standardized MOB type (case-insensitive)
+            mob = "Booking"  # Default fallback
+            for standard_mob, variants in mob_mapping.items():
+                if raw_mob.upper() in [v.upper() for v in variants]:
+                    mob = standard_mob
+                    break
+            rooms = len(b.get("inventory_no", []))
+            value = b.get("receivable", 0.0) if b.get("is_primary", False) and b.get("target_date") == date.fromisoformat(b["check_in"]) else 0.0
+            comm = b.get("commission", 0.0) if b.get("is_primary", False) and b.get("target_date") == date.fromisoformat(b["check_in"]) else 0.0
+            mtd_data[mob]["rooms"] += rooms
+            mtd_data[mob]["value"] += value
+            mtd_data[mob]["comm"] += comm
+            mtd_rooms += rooms
+            mtd_value += value
+            mtd_pax += b.get("total_pax", 0)
+            mtd_gst += b.get("gst", 0.0) if b.get("is_primary", False) and b.get("target_date") == date.fromisoformat(b["check_in"]) else 0.0
+            mtd_comm += comm
+            logging.info(f"M.T.D booking {b.get('booking_id')} mapped mob '{raw_mob}' to '{mob}'")
+
+    for mob in mob_types:
+        rooms = mtd_data[mob]["rooms"]
+        mtd_data[mob]["arr"] = mtd_data[mob]["value"] / rooms if rooms > 0 else 0.0
+
+    mtd_data["Total"] = {
+        "rooms": mtd_rooms,
+        "value": mtd_value,
+        "arr": mtd_value / mtd_rooms if mtd_rooms > 0 else 0.0,
+        "comm": mtd_comm
+    }
+    mtd_df = pd.DataFrame(
+        [{"MOB": mob, "M.T.D Rooms": data["rooms"], "M.T.D Value": f"{data['value']:.2f}",
+          "M.T.D ARR": f"{data['arr']:.2f}", "M.T.D Comm": f"{data['comm']:.2f}"}
+         for mob, data in mtd_data.items()],
+        columns=["MOB", "M.T.D Rooms", "M.T.D Value", "M.T.D ARR", "M.T.D Comm"]
+    )
+
+    # Summary statistics
+    summary = {
+        "rooms_sold": total_rooms,
+        "value": total_value,
+        "arr": total_value / total_rooms if total_rooms > 0 else 0.0,
+        "occ_percent": (total_rooms / total_inventory * 100) if total_inventory > 0 else 0.0,
+        "total_pax": total_pax,
+        "total_inventory": total_inventory,
+        "gst": total_gst,
+        "commission": total_comm,
+        "tax_deduction": total_value * 0.003,  # Assuming 0.3% as per example
+        "mtd_occ_percent": min((mtd_rooms / (total_inventory * target_date.day) * 100) if total_inventory > 0 and target_date.day > 0 else 0.0, 100.0),
+        "mtd_pax": mtd_pax,
+        "mtd_rooms": mtd_rooms,
+        "mtd_gst": mtd_gst,
+        "mtd_tax_deduction": mtd_value * 0.003,  # Assuming 0.3% as per example
+        "mtd_value": mtd_value
+    }
+
+    # MOP report
+    mop_df = compute_mop_report(dtd_assigned, target_date)
+
+    return dtd_df, mtd_df, summary, mop_df
 
 @st.cache_data
 def cached_load_properties():
@@ -504,5 +724,37 @@ def show_daily_status():
                             df[col] = df[col].apply(lambda x: f'<span title="{x}">{x}</span>' if isinstance(x, str) else x)
                     table_html = df.to_html(escape=False, index=False)
                     st.markdown(f'<div class="custom-scrollable-table">{table_html}</div>', unsafe_allow_html=True)
+                    
+                    # Compute and display statistics
+                    dtd_df, mtd_df, summary, mop_df = compute_statistics(bookings, prop, day, month_dates)
+                    # Display MOP Report and D.T.D Statistics side by side
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.subheader("MOP Report")
+                        st.dataframe(mop_df, use_container_width=True)
+                    with col2:
+                        st.subheader("D.T.D Statistics")
+                        st.dataframe(dtd_df, use_container_width=True)
+                    st.subheader("M.T.D Statistics")
+                    st.dataframe(mtd_df, use_container_width=True)
+                    st.subheader("Summary")
+                    summary_df = pd.DataFrame([
+                        {"Metric": "Rooms Sold", "Value": summary["rooms_sold"]},
+                        {"Metric": "Value", "Value": f"{summary['value']:.2f}"},
+                        {"Metric": "ARR", "Value": f"{summary['arr']:.2f}"},
+                        {"Metric": "Occ%", "Value": f"{summary['occ_percent']:.2f}%"},
+                        {"Metric": "Total Pax", "Value": summary["total_pax"]},
+                        {"Metric": "Total Inventory", "Value": summary["total_inventory"]},
+                        {"Metric": "GST ", "Value": f"{summary['gst']:.2f}"},
+                        {"Metric": "Commission", "Value": f"{summary['commission']:.2f}"},
+                        {"Metric": "TAX Deduction", "Value": f"{summary['tax_deduction']:.2f}"},
+                        {"Metric": "M.T.D Occ %", "Value": f"{summary['mtd_occ_percent']:.2f}%"},
+                        {"Metric": "M.T.D Pax", "Value": summary["mtd_pax"]},
+                        {"Metric": "M.T.D Rooms", "Value": summary["mtd_rooms"]},
+                        {"Metric": "M.T.D GST", "Value": f"{summary['mtd_gst']:.2f}"},
+                        {"Metric": "M.T.D Tax Deduc", "Value": f"{summary['mtd_tax_deduction']:.2f}"},
+                        {"Metric": "M.T.D Value", "Value": f"{summary['mtd_value']:.2f}"}
+                    ])
+                    st.dataframe(summary_df, use_container_width=True)
                 else:
                     st.info("No active bookings on this day.")
