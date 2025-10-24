@@ -12,6 +12,7 @@ except Exception as e:
     edit_online_available = False
 from inventory import show_daily_status
 from dms import show_dms
+from monthlyconsolidation import show_monthly_consolidation
 
 # Page config
 st.set_page_config(
@@ -58,7 +59,7 @@ def check_authentication():
                 st.session_state.role = "Management"
                 query_params = st.query_params
                 query_page = query_params.get("page", ["Direct Reservations"])[0]
-                if query_page in ["Direct Reservations", "View Reservations", "Edit Reservations", "Online Reservations", "Edit Online Reservations", "Daily Status", "Daily Management Status", "Analytics"]:
+                if query_page in ["Direct Reservations", "View Reservations", "Edit Reservations", "Online Reservations", "Edit Online Reservations", "Daily Status", "Daily Management Status", "Analytics", "Monthly Consolidation"]:
                     st.session_state.current_page = query_page
                 query_booking_id = query_params.get("booking_id", [None])[0]
                 if query_booking_id:
@@ -77,7 +78,7 @@ def check_authentication():
                 st.session_state.role = "ReservationTeam"
                 query_params = st.query_params
                 query_page = query_params.get("page", ["Direct Reservations"])[0]
-                if query_page in ["Direct Reservations", "View Reservations", "Edit Reservations", "Online Reservations", "Edit Online Reservations", "Daily Status"]:
+                if query_page in ["Direct Reservations", "View Reservations", "Edit Reservations", "Online Reservations", "Edit Online Reservations", "Daily Status", "Monthly Consolidation"]:
                     st.session_state.current_page = query_page
                 query_booking_id = query_params.get("booking_id", [None])[0]
                 if query_booking_id:
@@ -97,10 +98,10 @@ def check_authentication():
     else:
         # Preserve query params for authenticated users
         query_params = st.query_params
-        if st.session_state.current_page not in ["Direct Reservations", "View Reservations", "Edit Reservations", "Online Reservations", "Edit Online Reservations", "Daily Status", "Daily Management Status", "Analytics"]:
+        if st.session_state.current_page not in ["Direct Reservations", "View Reservations", "Edit Reservations", "Online Reservations", "Edit Online Reservations", "Daily Status", "Daily Management Status", "Analytics", "Monthly Consolidation"]:
             st.session_state.current_page = "Direct Reservations"
         query_page = query_params.get("page", [st.session_state.current_page])[0]
-        if query_page in ["Direct Reservations", "View Reservations", "Edit Reservations", "Online Reservations", "Edit Online Reservations", "Daily Status", "Daily Management Status", "Analytics"]:
+        if query_page in ["Direct Reservations", "View Reservations", "Edit Reservations", "Online Reservations", "Edit Online Reservations", "Daily Status", "Daily Management Status", "Analytics", "Monthly Consolidation"]:
             st.session_state.current_page = query_page
         query_booking_id = query_params.get("booking_id", [None])[0]
         if query_booking_id:
@@ -111,7 +112,7 @@ def main():
     st.title("🏢 TIE Reservations")
     st.markdown("---")
     st.sidebar.title("Navigation")
-    page_options = ["Direct Reservations", "View Reservations", "Edit Reservations", "Online Reservations", "Daily Status", "Daily Management Status"]
+    page_options = ["Direct Reservations", "View Reservations", "Edit Reservations", "Online Reservations", "Daily Status", "Daily Management Status", "Monthly Consolidation"]
     if st.session_state.role == "Management":
         page_options.append("Analytics")
     if edit_online_available:
@@ -150,6 +151,8 @@ def main():
         show_dms()
     elif page == "Analytics" and st.session_state.role == "Management":
         show_analytics()
+    elif page == "Monthly Consolidation":
+        show_monthly_consolidation()
 
     if st.sidebar.button("Log Out"):
         st.cache_data.clear()
