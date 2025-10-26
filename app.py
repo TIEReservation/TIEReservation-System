@@ -355,8 +355,6 @@ def load_property_room_map():
             "No Show": ["No Show"]
         }
        }
-    }
-
 def main():
     check_authentication()
     st.title("🏢 TIE Reservations")
