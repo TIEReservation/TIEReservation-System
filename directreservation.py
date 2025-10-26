@@ -149,8 +149,8 @@ def show_new_reservation_form():
     # Property selection OUTSIDE form for dynamic updates
     property_name = st.selectbox("Property Name", properties, key="property_select_outside_form")
     
-    # Get room types for selected property
-    room_types = list(property_room_map[property_name].keys())
+    # Get room types for selected property and add "Others"
+    room_types = list(property_room_map[property_name].keys()) + ["Others"]
     
     with st.form(key=form_key):
         # Row 1: Booking ID
@@ -175,8 +175,7 @@ def show_new_reservation_form():
         with col1:
             room_type = st.selectbox("Room Type", room_types, key=f"{form_key}_room_type")
         with col2:
-            room_numbers = property_room_map[property_name][room_type]
-            room_no = st.selectbox("Room No", room_numbers, key=f"{form_key}_room_no")
+            room_no = st.text_input("Room No", key=f"{form_key}_room_no")
         
         # Row 5: No of Adults, Children, Infants
         col1, col2, col3 = st.columns(3)
@@ -386,7 +385,10 @@ def show_edit_reservations():
         
         property_room_map = load_property_room_map()
         properties = sorted(property_room_map.keys())
+        
+        # Get room types and add "Others"
         room_types = list(property_room_map[reservation["Property Name"]].keys()) if reservation["Property Name"] in property_room_map else []
+        room_types.append("Others")
         
         with st.form(key=f"edit_form_{reservation['Booking ID']}"):
             # Row 1: Property Name, Booking ID
@@ -415,8 +417,7 @@ def show_edit_reservations():
             with col1:
                 room_type = st.selectbox("Room Type", room_types, index=room_types.index(reservation["Room Type"]) if reservation["Room Type"] in room_types else 0)
             with col2:
-                room_numbers = property_room_map[property_name].get(room_type, [])
-                room_no = st.selectbox("Room No", room_numbers, index=room_numbers.index(reservation["Room No"]) if reservation["Room No"] in room_numbers else 0)
+                room_no = st.text_input("Room No", value=reservation["Room No"])
             
             # Row 5: No of Adults, Children, Infants
             col1, col2, col3 = st.columns(3)
