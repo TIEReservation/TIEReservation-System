@@ -25,22 +25,6 @@ def load_property_room_map():
             "Day Use": ["Day Use 1", "Day Use 2"],
             "No Show": ["No Show"]
         },
-        "Le Park Resort": {
-            "Villa with Swimming Pool View": ["555&666", "555", "666"],
-            "Villa with Garden View": ["111&222", "111", "222"],
-            "Family Retreate Villa": ["333&444", "333", "444"],
-            "Day Use" : ["Day Use 1", "Day Use 2"],
-            "No Show" : ["No Show"]
-        },
-        "Villa Shakti": {
-            "2BHA Studio Room": ["101&102"],
-            "2BHA with Balcony": ["202&203", "302&303"],
-            "Family Suite": ["201"],
-            "Family Room": ["301"],
-            "Terrace Room": ["401"],
-            "Day Use" : ["Day Use 1", "Day Use 2"],
-            "No Show" : ["No Show"]
-        },
         "La Millionaire Resort": {
             "Double Room": ["101", "102", "103", "105"],
             "Deluex Double Room with Balcony": ["205", "304", "305"],
@@ -75,7 +59,6 @@ def load_property_room_map():
         },
         "La Paradise Luxury": {
             "3BHA Appartment": ["101to103", "101", "102", "103", "201to203", "201", "202", "203"],
-            "Entire Villa": ["101,102,103,201,202,203"],
             "Day Use": ["Day Use 1", "Day Use 2"],
             "No Show": ["No Show"]
         },
@@ -117,6 +100,29 @@ def load_property_room_map():
             "Deluxe Family Room": ["206"],
             "Day Use": ["Day Use 1", "Day Use 2"],
             "No Show": ["No Show"]
+        },
+        "Le Park Resort": {
+            "Villa with Swimming Pool View": ["555&666", "555", "666"],
+            "Villa with Garden View": ["111&222", "111", "222"],
+            "Family Retreate Villa": ["333&444", "333", "444"],
+            "Day Use": ["Day Use 1", "Day Use 2"],
+            "No Show": ["No Show"]
+        },
+        "Villa Shakti": {
+            "2BHA Studio Room": ["101&102"],
+            "2BHA with Balcony": ["202&203", "302&303"],
+            "Family Suite": ["201"],
+            "Family Room": ["301"],
+            "Terrace Room": ["401"],
+            "Day Use": ["Day Use 1", "Day Use 2"],
+            "No Show": ["No Show"]
+        },
+        "Eden Beach Resort": {
+            "Double Room": ["101", "102"],
+            "Deluex Room": ["103", "202"],
+            "Triple Room": ["201"],
+            "Day Use": ["Day Use 1", "Day Use 2"],
+            "No Show": ["No Show"]
         }
     }
 
@@ -127,13 +133,15 @@ def show_new_reservation_form():
     property_room_map = load_property_room_map()
     properties = sorted(property_room_map.keys())
     
+    # Property selection OUTSIDE form for dynamic updates
+    property_name = st.selectbox("Property Name", properties, key="property_select_outside_form")
+    
+    # Get room types for selected property
+    room_types = list(property_room_map[property_name].keys())
+    
     with st.form(key=form_key):
-        # Row 1: Property Name, Booking ID
-        col1, col2 = st.columns(2)
-        with col1:
-            property_name = st.selectbox("Property Name", properties, key=f"{form_key}_property")
-        with col2:
-            booking_id = st.text_input("Booking ID", key=f"{form_key}_booking_id")
+        # Row 1: Booking ID
+        booking_id = st.text_input("Booking ID", key=f"{form_key}_booking_id")
         
         # Row 2: Guest Name, Guest Phone
         col1, col2 = st.columns(2)
@@ -149,8 +157,7 @@ def show_new_reservation_form():
         with col2:
             check_out = st.date_input("Check Out", min_value=date.today(), key=f"{form_key}_check_out")
         
-        # Row 4: Room No, Room Type
-        room_types = sorted(property_room_map[property_name].keys())
+        # Row 4: Room Type, Room No
         col1, col2 = st.columns(2)
         with col1:
             room_type = st.selectbox("Room Type", room_types, key=f"{form_key}_room_type")
@@ -426,13 +433,17 @@ def show_edit_reservations():
                 if not reservation.get("Submitted By"):
                     st.warning(f"⚠️ Reservation {reservation['Booking ID']} has no 'Submitted By' value. Please check Supabase data.")
                 
+                # Property selection OUTSIDE form for dynamic updates
+                current_property = reservation.get("Property Name", properties[0])
+                property_index = properties.index(current_property) if current_property in properties else 0
+                property_name = st.selectbox("Property Name", properties, index=property_index, key=f"{form_key}_property_outside")
+                
+                # Get room types for selected property
+                room_types = list(property_room_map[property_name].keys())
+                
                 with st.form(key=form_key):
-                    # Row 1: Property Name, Booking ID
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        property_name = st.selectbox("Property Name", properties, index=properties.index(reservation.get("Property Name", "")) if reservation.get("Property Name") in properties else 0, key=f"{form_key}_property")
-                    with col2:
-                        booking_id = st.text_input("Booking ID", value=reservation.get("Booking ID", ""), disabled=True, key=f"{form_key}_booking_id")
+                    # Row 1: Booking ID
+                    booking_id = st.text_input("Booking ID", value=reservation.get("Booking ID", ""), disabled=True, key=f"{form_key}_booking_id")
                     
                     # Row 2: Guest Name, Guest Phone
                     col1, col2 = st.columns(2)
@@ -454,8 +465,7 @@ def show_edit_reservations():
                         except ValueError:
                             check_out = st.date_input("Check Out", value=date.today(), key=f"{form_key}_check_out")
                     
-                    # Row 4: Room No, Room Type
-                    room_types = sorted(property_room_map[property_name].keys())
+                    # Row 4: Room Type, Room No
                     col1, col2 = st.columns(2)
                     with col1:
                         current_room_type = reservation.get("Room Type", room_types[0])
