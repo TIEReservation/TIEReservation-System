@@ -252,30 +252,17 @@ def show_user_management():
         st.rerun()
 
 def load_property_room_map():
-    # Retained for reference, used to define all 15 properties
+    """
+    Loads the property to room type to room numbers mapping based on provided data.
+    Returns a nested dictionary: {"Property": {"Room Type": ["Room No", ...], ...}, ...}
+    """
     return {
-         "Le Poshe Beach view": {
+        "Le Poshe Beach view": {
             "Double Room": ["101", "102", "202", "203", "204"],
             "Standard Room": ["201"],
             "Deluex Double Room Seaview": ["301", "302", "303", "304"],
             "Day Use": ["Day Use 1", "Day Use 2"],
             "No Show": ["No Show"]
-        },
-        "Le Park Resort": {
-            "Villa with Swimming Pool View": ["555&666", "555", "666"],
-            "Villa with Garden View": ["111&222", "111", "222"],
-            "Family Retreate Villa": ["333&444", "333", "444"],
-            "Day Use" : ["Day Use 1", "Day Use 2"],
-            "No Show" : ["No Show"]
-        },
-        "Villa Shakti": {
-            "2BHA Studio Room": ["101&102"],
-            "2BHA with Balcony": ["202&203", "302&303"],
-            "Family Suite": ["201"],
-            "Family Room": ["301"],
-            "Terrace Room": ["401"],
-            "Day Use" : ["Day Use 1", "Day Use 2"],
-            "No Show" : ["No Show"]
         },
         "La Millionaire Resort": {
             "Double Room": ["101", "102", "103", "105"],
@@ -311,7 +298,6 @@ def load_property_room_map():
         },
         "La Paradise Luxury": {
             "3BHA Appartment": ["101to103", "101", "102", "103", "201to203", "201", "202", "203"],
-            "Entire Villa": ["101,102,103,201,202,203"],
             "Day Use": ["Day Use 1", "Day Use 2"],
             "No Show": ["No Show"]
         },
@@ -353,8 +339,32 @@ def load_property_room_map():
             "Deluxe Family Room": ["206"],
             "Day Use": ["Day Use 1", "Day Use 2"],
             "No Show": ["No Show"]
+        },
+        "Le Park Resort": {
+            "Villa with Swimming Pool View": ["555&666", "555", "666"],
+            "Villa with Garden View": ["111&222", "111", "222"],
+            "Family Retreate Villa": ["333&444", "333", "444"],
+            "Day Use": ["Day Use 1", "Day Use 2"],
+            "No Show": ["No Show"]
+        },
+        "Villa Shakti": {
+            "2BHA Studio Room": ["101&102"],
+            "2BHA with Balcony": ["202&203", "302&303"],
+            "Family Suite": ["201"],
+            "Family Room": ["301"],
+            "Terrace Room": ["401"],
+            "Day Use": ["Day Use 1", "Day Use 2"],
+            "No Show": ["No Show"]
+        },
+        "Eden Beach Resort": {
+            "Double Room": ["101", "102"],
+            "Deluex Room": ["103", "202"],
+            "Triple Room": ["201"],
+            "Day Use": ["Day Use 1", "Day Use 2"],
+            "No Show": ["No Show"]
         }
-       }
+    }
+
 def main():
     check_authentication()
     st.title("🏢 TIE Reservations")
