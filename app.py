@@ -3,13 +3,6 @@ import os
 import pandas as pd
 from supabase import create_client, Client
 
-# Handle dotenv import safely
-try:
-    from dotenv import load_dotenv
-    load_dotenv()  # Load environment variables from .env file
-except ImportError:
-    st.warning("python-dotenv not installed. Using hardcoded or environment variables directly.")
-
 # Import functions with error handling
 try:
     from directreservation import show_new_reservation_form, show_reservations, show_edit_reservations, show_analytics, load_reservations_from_supabase
@@ -71,7 +64,7 @@ st.image("https://github.com/TIEReservation/TIEReservation-System/raw/main/TIE_L
 SUPABASE_URL = os.getenv("SUPABASE_URL", "https://oxbrezracnmazucnnqox.supabase.co")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im94YnJlenJhY25tYXp1Y25ucW94Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM3NjUxMTgsImV4cCI6MjA2OTM0MTExOH0.nqBK2ZxntesLY9qYClpoFPVnXOW10KrzF-UI_DKjbKo")
 if not SUPABASE_URL or not SUPABASE_KEY:
-    st.error("Supabase URL and Key must be set in environment variables or .env file.")
+    st.error("Supabase URL and Key must be set in environment variables.")
     st.stop()
 
 try:
