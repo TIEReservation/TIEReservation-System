@@ -1,459 +1,291 @@
 import streamlit as st
-import os
-from supabase import create_client, Client
-from directreservation import show_new_reservation_form, show_reservations, show_edit_reservations, show_analytics, load_reservations_from_supabase
-from online_reservation import show_online_reservations, load_online_reservations_from_supabase
-try:
-    from editOnline import show_edit_online_reservations
-    edit_online_available = True
-except Exception as e:
-    st.error(f"Failed to import editOnline module: {e}. 'Edit Online Reservations' page will be disabled.")
-    show_edit_online_reservations = None
-    edit_online_available = False
-from inventory import show_daily_status
-from dms import show_dms
-from monthlyconsolidation import show_monthly_consolidation
 import pandas as pd
-from log import show_log_report, log_activity
+from datetime import datetime, timedelta
+import random
 
-# Page config
-st.set_page_config(
-    page_title="TIE Reservations",
-    page_icon="https://github.com/TIEReservation/TIEReservation-System/raw/main/TIE_Logo_Icon.png",
-    layout="wide"
-)
+# Function to generate a booking ID
+def generate_booking_id():
+    base_date = datetime.now().strftime("%Y%m%d")
+    random_suffix = str(random.randint(1, 999)).zfill(3)
+    return f"TIE{base_date}{random_suffix}"
 
-# Display logo in top-left corner
-st.image("https://github.com/TIEReservation/TIEReservation-System/raw/main/TIE_Logo_Icon.png", width=100)
+# Function to load reservations from Supabase
+def load_reservations_from_supabase():
+    try:
+        response = st.session_state.supabase.table("reservations").select("*").eq("mob", "Direct").execute()
+        return response.data if response.data else []
+    except Exception as e:
+        st.error(f"Error fetching direct reservations: {e}")
+        return []
 
-# Initialize Supabase client with environment variables
-try:
-    os.environ["SUPABASE_URL"] = "https://oxbrezracnmazucnnqox.supabase.co"
-    os.environ["SUPABASE_KEY"] = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im94YnJlenJhY25tYXp1Y25ucW94Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM3NjUxMTgsImV4cCI6MjA2OTM0MTExOH0.nqBK2ZxntesLY9qYClpoFPVnXOW10KrzF-UI_DKjbKo"
-    supabase: Client = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_KEY"])
-except Exception as e:
-    st.error(f"Failed to initialize Supabase client: {e}")
-    st.stop()
-
-def check_authentication():
-    if 'authenticated' not in st.session_state:
-        st.session_state.authenticated = False
-        st.session_state.username = None
-        st.session_state.role = None
-        st.session_state.reservations = []
-        st.session_state.online_reservations = []
-        st.session_state.edit_mode = False
-        st.session_state.edit_index = None
-        st.session_state.online_edit_mode = False
-        st.session_state.online_edit_index = None
-        st.session_state.current_page = "Direct Reservations"
-        st.session_state.selected_booking_id = None
-        st.session_state.user_data = None
-        st.session_state.permissions = None  # Initialize permissions attribute
-
-    if not st.session_state.authenticated:
-        st.title("🔐 TIE Reservations Login")
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
-        if st.button("🔑 Login"):
-            if username == "Admin" and password == "Admin2024":
-                st.session_state.authenticated = True
-                st.session_state.username = "Admin"
-                st.session_state.role = "Admin"
-                st.session_state.current_page = "User Management"
-                st.session_state.permissions = {"add": True, "edit": True, "delete": True}  # Default for Admin
-            elif username == "Management" and password == "TIE2024":
-                st.session_state.authenticated = True
-                st.session_state.username = "Management"
-                st.session_state.role = "Management"
-                st.session_state.current_page = "Direct Reservations"
-                st.session_state.permissions = {"add": True, "edit": True, "delete": False}  # Example for Management
-            elif username == "ReservationTeam" and password == "TIE123":
-                st.session_state.authenticated = True
-                st.session_state.username = "ReservationTeam"
-                st.session_state.role = "ReservationTeam"
-                st.session_state.current_page = "Direct Reservations"
-                st.session_state.permissions = {"add": True, "edit": False, "delete": False}  # Example for ReservationTeam
-            else:
-                try:
-                    users = supabase.table("users").select("*").eq("username", username).eq("password_hash", password).execute().data
-                    if users and len(users) == 1:
-                        user_data = users[0]
-                        st.session_state.authenticated = True
-                        st.session_state.username = username
-                        st.session_state.role = user_data["role"]
-                        st.session_state.user_data = user_data
-                        st.session_state.permissions = user_data.get("permissions", {"add": False, "edit": False, "delete": False})  # Extract permissions
-                        valid_screens = ["Direct Reservations", "View Reservations", "Edit Reservations", "Online Reservations", "Edit Online Reservations", "Daily Status", "Daily Management Status", "Analytics", "Monthly Consolidation"]
-                        if st.session_state.role == "Admin":
-                            valid_screens.append("User Management")
-                        elif st.session_state.role == "Management":
-                            valid_screens = [s for s in valid_screens if s not in ["User Management"]]
-                        st.session_state.current_page = next((s for s in valid_screens if s in user_data.get("screens", ["Direct Reservations"])), "Direct Reservations")
-                    else:
-                        st.error("❌ Invalid username or password.")
-                except Exception as e:
-                    st.warning(f"⚠️ Database query failed: {e}. Falling back to hardcoded credentials.")
-                    if username == "Admin" and password == "Admin2024":
-                        st.session_state.authenticated = True
-                        st.session_state.username = "Admin"
-                        st.session_state.role = "Admin"
-                        st.session_state.current_page = "User Management"
-                        st.session_state.permissions = {"add": True, "edit": True, "delete": True}
-                    elif username == "Management" and password == "TIE2024":
-                        st.session_state.authenticated = True
-                        st.session_state.username = "Management"
-                        st.session_state.role = "Management"
-                        st.session_state.current_page = "Direct Reservations"
-                        st.session_state.permissions = {"add": True, "edit": True, "delete": False}
-                    elif username == "ReservationTeam" and password == "TIE123":
-                        st.session_state.authenticated = True
-                        st.session_state.username = "ReservationTeam"
-                        st.session_state.role = "ReservationTeam"
-                        st.session_state.current_page = "Direct Reservations"
-                        st.session_state.permissions = {"add": True, "edit": False, "delete": False}
-                    else:
-                        st.error("❌ Invalid username or password.")
-            if st.session_state.authenticated:
-                query_params = st.query_params
-                query_booking_id = query_params.get("booking_id", [None])[0]
-                if query_booking_id:
-                    st.session_state.selected_booking_id = query_booking_id
-                try:
-                    st.session_state.reservations = load_reservations_from_supabase()
-                    st.session_state.online_reservations = load_online_reservations_from_supabase()
-                    st.success(f"✅ {username} login successful!")
-                except Exception as e:
-                    st.session_state.reservations = []
-                    st.session_state.online_reservations = []
-                    st.warning(f"✅ {username} login successful, but failed to fetch data: {e}")
-                st.rerun()
-        st.stop()
-    else:
-        query_params = st.query_params
-        query_page = query_params.get("page", [st.session_state.current_page])[0]
-        valid_screens = ["Direct Reservations", "View Reservations", "Edit Reservations", "Online Reservations", "Edit Online Reservations", "Daily Status", "Daily Management Status", "Analytics", "Monthly Consolidation"]
-        if st.session_state.role == "Admin":
-            valid_screens.append("User Management")
-        elif st.session_state.role == "Management":
-            valid_screens = [s for s in valid_screens if s not in ["User Management"]]
-        if st.session_state.user_data and query_page not in st.session_state.user_data.get("screens", valid_screens):
-            st.error(f"❌ Access Denied: You do not have permission to view {query_page}.")
-            st.session_state.current_page = "Direct Reservations"
-        elif query_page in valid_screens:
-            st.session_state.current_page = query_page
-        query_booking_id = query_params.get("booking_id", [None])[0]
-        if query_booking_id:
-            st.session_state.selected_booking_id = query_booking_id
-
-def show_user_management():
-    if st.session_state.role != "Admin":
-        st.error("❌ Access Denied: User Management is available only for Admin.")
+# Function to display form for new direct reservations
+def show_new_reservation_form():
+    if not st.session_state.permissions.get("add", False):
+        st.error("❌ You do not have permission to add reservations.")
         return
-    st.header("👥 User Management")
 
-    users = supabase.table("users").select("*").execute().data
-    if not users:
-        st.info("No users found.")
+    st.header("New Direct Reservation")
+    
+    # Load property and room map from session state or app.py
+    property_room_map = st.session_state.get("property_room_map", {
+        "Le Poshe Beach view": {"Double Room": ["101", "102", "202", "203", "204"], "Standard Room": ["201"], "Deluex Double Room Seaview": ["301", "302", "303", "304"], "Day Use": ["Day Use 1", "Day Use 2"], "No Show": ["No Show"]},
+        "La Millionaire Resort": {"Double Room": ["101", "102", "103", "105"], "Deluex Double Room with Balcony": ["205", "304", "305"], "Deluex Triple Room with Balcony": ["201", "202", "203", "204", "301", "302", "303"], "Deluex Family Room with Balcony": ["206", "207", "208", "306", "307", "308"], "Deluex Triple Room": ["402"], "Deluex Family Room": ["401"], "Day Use": ["Day Use 1", "Day Use 2", "Day Use 3", "Day Use 5"], "No Show": ["No Show"]},
+        "Le Poshe Luxury": {"2BHA Appartment": ["101&102", "101", "102"], "2BHA Appartment with Balcony": ["201&202", "201", "202", "301&302", "301", "302", "401&402", "401", "402"], "3BHA Appartment": ["203to205", "203", "204", "205", "303to305", "303", "304", "305", "403to405", "403", "404", "405"], "Double Room with Private Terrace": ["501"], "Day Use": ["Day Use 1", "Day Use 2"], "No Show": ["No Show"]},
+        "Le Poshe Suite": {"2BHA Appartment": ["601&602", "601", "602", "603", "604", "703", "704"], "2BHA Appartment with Balcony": ["701&702", "701", "702"], "Double Room with Terrace": ["801"], "Day Use": ["Day Use 1", "Day Use 2"], "No Show": ["No Show"]},
+        "La Paradise Residency": {"Double Room": ["101", "102", "103", "301", "302", "304"], "Family Room": ["201", "203"], "Triple Room": ["202", "303"], "Day Use": ["Day Use 1", "Day Use 2"], "No Show": ["No Show"]},
+        "La Paradise Luxury": {"3BHA Appartment": ["101to103", "101", "102", "103", "201to203", "201", "202", "203"], "Day Use": ["Day Use 1", "Day Use 2"], "No Show": ["No Show"]},
+        "La Villa Heritage": {"Double Room": ["101", "102", "103"], "4BHA Appartment": ["201to203&301", "201", "202", "203", "301"], "Day Use": ["Day Use 1", "Day Use 2"], "No Show": ["No Show"]},
+        "Le Pondy Beach Side": {"Villa": ["101to104", "101", "102", "103", "104"], "Day Use": ["Day Use 1", "Day Use 2"], "No Show": ["No Show"]},
+        "Le Royce Villa": {"Villa": ["101to102&201to202", "101", "102", "201", "202"], "Day Use": ["Day Use 1", "Day Use 2"], "No Show": ["No Show"]},
+        "La Tamara Luxury": {"3BHA": ["101to103", "101", "102", "103", "104to106", "104", "105", "106", "201to203", "201", "202", "203", "204to206", "204", "205", "206", "301to303", "301", "302", "303", "304to306", "304", "305", "306"], "4BHA": ["401to404", "401", "402", "403", "404"], "Day Use": ["Day Use 1", "Day Use 2"], "No Show": ["No Show"]},
+        "La Antilia Luxury": {"Deluex Suite Room": ["101"], "Deluex Double Room": ["203", "204", "303", "304"], "Family Room": ["201", "202", "301", "302"], "Deluex suite Room with Tarrace": ["404"], "Day Use": ["Day Use 1", "Day Use 2"], "No Show": ["No Show"]},
+        "La Tamara Suite": {"Two Bedroom apartment": ["101&102"], "Deluxe Apartment": ["103&104"], "Deluxe Double Room": ["203", "204", "205"], "Deluxe Triple Room": ["201", "202"], "Deluxe Family Room": ["206"], "Day Use": ["Day Use 1", "Day Use 2"], "No Show": ["No Show"]},
+        "Le Park Resort": {"Villa with Swimming Pool View": ["555&666", "555", "666"], "Villa with Garden View": ["111&222", "111", "222"], "Family Retreate Villa": ["333&444", "333", "444"], "Day Use": ["Day Use 1", "Day Use 2"], "No Show": ["No Show"]},
+        "Villa Shakti": {"2BHA Studio Room": ["101&102"], "2BHA with Balcony": ["202&203", "302&303"], "Family Suite": ["201"], "Family Room": ["301"], "Terrace Room": ["401"], "Day Use": ["Day Use 1", "Day Use 2"], "No Show": ["No Show"]},
+        "Eden Beach Resort": {"Double Room": ["101", "102"], "Deluex Room": ["103", "202"], "Triple Room": ["201"], "Day Use": ["Day Use 1", "Day Use 2"], "No Show": ["No Show"]}
+    })
+
+    with st.form(key="new_reservation_form"):
+        # Property and room selection
+        property_name = st.selectbox("Property Name", list(property_room_map.keys()))
+        room_types = list(property_room_map[property_name].keys())
+        room_type = st.selectbox("Room Type", room_types)
+        room_no = st.selectbox("Room Number", property_room_map[property_name][room_type])
+        
+        # Guest details
+        guest_name = st.text_input("Guest Name")
+        mobile_no = st.text_input("Mobile Number (10 digits)")
+        no_of_adults = st.number_input("Number of Adults", min_value=1, max_value=20, value=1)
+        no_of_children = st.number_input("Number of Children", min_value=0, max_value=5, value=0)
+        no_of_infants = st.number_input("Number of Infants", min_value=0, max_value=2, value=0)
+        
+        # Dates
+        check_in = st.date_input("Check-In Date", min_value=datetime.today())
+        check_out = st.date_input("Check-Out Date", min_value=check_in + timedelta(days=1))
+        
+        # Financial details
+        tariff = st.number_input("Tariff per Night", min_value=1000.0, max_value=21500.0, value=1000.0)
+        advance_amount = st.number_input("Advance Amount", min_value=0.0, value=0.0)
+        advance_mop = st.selectbox("Advance Payment Method", ["UPI", "Cash", "Card", "Pending", "Advance not paid"])
+        
+        # Other details
+        mob = st.selectbox("Mode of Booking", ["Direct", "Booking-Drt", "Walk-in", "Website"])
+        breakfast = st.selectbox("Breakfast Plan", ["CP", "EP"])
+        plan_status = st.selectbox("Plan Status", ["Confirmed", "Pending"])
+        submitted_by = st.selectbox("Submitted By", ["Iswariya", "PRAKASH", "Gayathri", "ANAND", "Amrish", "Nandhini", "Baradhan", "Shan"])
+
+        submit_button = st.form_submit_button("Submit Reservation")
+
+        if submit_button:
+            # Validate inputs
+            if not guest_name or len(mobile_no) != 10 or not mobile_no.isdigit():
+                st.error("Please provide a valid guest name and 10-digit mobile number.")
+                return
+
+            # Calculate derived fields
+            no_of_days = (check_out - check_in).days
+            total_pax = no_of_adults + no_of_children + no_of_infants
+            total_tariff = tariff * no_of_days
+            balance_amount = total_tariff - advance_amount
+            balance_mop = "no balance" if balance_amount == 0 else random.choice(["UPI", "Cash", "Card", "Pending"])
+            booking_id = generate_booking_id()
+            enquiry_date = check_in - timedelta(days=random.randint(0, 10))
+            booking_date = enquiry_date
+
+            # Prepare data for Supabase
+            reservation_data = {
+                "booking_id": booking_id,
+                "property_name": property_name,
+                "room_no": room_no,
+                "guest_name": guest_name,
+                "mobile_no": mobile_no,
+                "no_of_adults": no_of_adults,
+                "no_of_children": no_of_children,
+                "no_of_infants": no_of_infants,
+                "total_pax": total_pax,
+                "check_in": check_in.strftime("%Y-%m-%d"),
+                "check_out": check_out.strftime("%Y-%m-%d"),
+                "no_of_days": no_of_days,
+                "tariff": tariff,
+                "total_tariff": total_tariff,
+                "advance_amount": advance_amount,
+                "balance_amount": balance_amount,
+                "advance_mop": advance_mop,
+                "balance_mop": balance_mop,
+                "mob": mob,
+                "online_source": "null",
+                "invoice_no": "null",
+                "enquiry_date": enquiry_date.strftime("%Y-%m-%d"),
+                "booking_date": booking_date.strftime("%Y-%m-%d"),
+                "room_type": room_type,
+                "breakfast": breakfast,
+                "plan_status": plan_status,
+                "submitted_by": submitted_by,
+                "modified_by": "",
+                "modified_comments": "",
+                "remarks": "",
+                "payment_status": "Fully Paid" if balance_amount == 0 else random.choice(["Partially Paid", "Not Paid"])
+            }
+
+            try:
+                # Insert into Supabase
+                response = st.session_state.supabase.table("reservations").insert(reservation_data).execute()
+                if response.data:
+                    st.success(f"Reservation {booking_id} created successfully!")
+                    from log import log_activity
+                    log_activity(st.session_state.supabase, st.session_state.username, f"Created reservation {booking_id}")
+                    st.session_state.reservations = load_reservations_from_supabase()  # Refresh data
+                else:
+                    st.error("Failed to save reservation to the database.")
+            except Exception as e:
+                st.error(f"Error saving reservation: {str(e)}")
+
+# Function to display existing direct reservations
+def show_reservations():
+    st.header("View Direct Reservations")
+    reservations = st.session_state.get("reservations", load_reservations_from_supabase())
+    if not reservations:
+        st.info("No direct reservations found.")
         return
-    df = pd.DataFrame(users)
-    st.subheader("Existing Users")
-    st.dataframe(df[["username", "role", "properties", "screens", "permissions"]])
+    
+    df = pd.DataFrame(reservations)
+    st.dataframe(df[["booking_id", "property_name", "room_no", "guest_name", "check_in", "check_out", "total_tariff", "payment_status"]])
 
-    # Create new user
-    st.subheader("Create New User")
-    with st.form("create_user_form"):
-        new_username = st.text_input("Username")
-        new_password = st.text_input("Password", type="password")
-        new_role = st.selectbox("Role", ["Management", "ReservationTeam"])
-        # Use all 15 properties from load_property_room_map for individual users and Reservation Team
-        all_properties = [
-            "Le Poshe Beach view", "La Millionaire Resort", "Le Poshe Luxury", "Le Poshe Suite",
-            "La Paradise Residency", "La Paradise Luxury", "La Villa Heritage", "Le Pondy Beach Side",
-            "Le Royce Villa", "La Tamara Luxury", "Eden Beach Resort", "Le Poshe Beach", "La Millionaire",
-            "Le Poshe Deluxe", "La Paradise"
-        ]
-        new_properties = st.multiselect("Visible Properties", all_properties, default=all_properties)  # Default to all 15 properties
-        all_screens = ["Direct Reservations", "View Reservations", "Edit Reservations", "Online Reservations", "Edit Online Reservations", "Daily Status", "Daily Management Status", "Analytics", "Monthly Consolidation"]
-        default_screens = all_screens if new_role == "Management" else [s for s in all_screens if s not in ["Daily Management Status", "Analytics"]]
-        new_screens = st.multiselect("Visible Screens", all_screens, default=default_screens)
-        add_perm = st.checkbox("Add Permission", value=True)
-        edit_perm = st.checkbox("Edit Permission", value=True)
-        delete_perm = st.checkbox("Delete Permission", value=True)
-        if st.form_submit_button("Create User"):
-            existing = supabase.table("users").select("*").eq("username", new_username).execute().data
-            if existing:
-                st.error("Username already exists.")
-            else:
-                new_user = {
-                    "username": new_username,
-                    "password_hash": new_password,
-                    "role": new_role,
-                    "properties": new_properties,
-                    "screens": new_screens,
-                    "permissions": {"add": add_perm, "edit": edit_perm, "delete": delete_perm}
-                }
-                try:
-                    supabase.table("users").insert(new_user).execute()
-                    log_activity(supabase, st.session_state.username, f"Created user {new_username}")
-                    st.success(f"✅ User {new_username} created successfully!")
-                except Exception as e:
-                    st.error(f"❌ Failed to create user: {e}")
-                st.rerun()
+# Function to edit existing direct reservations
+def show_edit_reservations():
+    if not st.session_state.permissions.get("edit", False):
+        st.error("❌ You do not have permission to edit reservations.")
+        return
 
-    # Modify user
-    st.subheader("Modify User")
-    modify_username = st.selectbox("Select User to Modify", [u["username"] for u in users if u["username"] != "Admin"])
-    if modify_username:
-        user_to_modify = next(u for u in users if u["username"] == modify_username)
-        with st.form("modify_user_form"):
-            mod_role = st.selectbox("Role", ["Management", "ReservationTeam"], index=0 if user_to_modify["role"] == "Management" else 1)
-            # Use all 15 properties for individual users and Reservation Team
-            all_properties = [
-                "Le Poshe Beach view", "La Millionaire Resort", "Le Poshe Luxury", "Le Poshe Suite",
-                "La Paradise Residency", "La Paradise Luxury", "La Villa Heritage", "Le Pondy Beach Side",
-                "Le Royce Villa", "La Tamara Luxury", "Eden Beach Resort", "Le Poshe Beach", "La Millionaire",
-                "Le Poshe Deluxe", "La Paradise"
-            ]
-            # Filter default properties to match available options
-            default_properties = [prop for prop in user_to_modify.get("properties", []) if prop in all_properties]
-            mod_properties = st.multiselect("Visible Properties", all_properties, default=default_properties if default_properties else all_properties)  # Default to all 15 if none selected
-            all_screens = ["Direct Reservations", "View Reservations", "Edit Reservations", "Online Reservations", "Edit Online Reservations", "Daily Status", "Daily Management Status", "Analytics", "Monthly Consolidation"]
-            mod_screens = st.multiselect("Visible Screens", all_screens, default=user_to_modify["screens"])
-            perms = user_to_modify["permissions"]
-            mod_add = st.checkbox("Add Permission", value=perms["add"])
-            mod_edit = st.checkbox("Edit Permission", value=perms["edit"])
-            mod_delete = st.checkbox("Delete Permission", value=perms["delete"])
-            if st.form_submit_button("Update User"):
-                updated_user = {
-                    "role": mod_role,
-                    "properties": mod_properties,
-                    "screens": mod_screens,
-                    "permissions": {"add": mod_add, "edit": mod_edit, "delete": mod_delete}
-                }
-                try:
-                    supabase.table("users").update(updated_user).eq("username", modify_username).execute()
-                    log_activity(supabase, st.session_state.username, f"Modified user {modify_username}")
-                    st.success(f"✅ User {modify_username} updated successfully!")
-                except Exception as e:
-                    st.error(f"❌ Failed to update user: {e}")
-                st.rerun()
+    st.header("Edit Direct Reservations")
+    reservations = st.session_state.get("reservations", load_reservations_from_supabase())
+    if not reservations:
+        st.info("No direct reservations available to edit.")
+        return
 
-    # Delete user
-    st.subheader("Delete User")
-    delete_username = st.selectbox("Select User to Delete", [u["username"] for u in users if u["username"] not in ["Admin", "Management", "ReservationTeam"]])
-    if delete_username and st.button("Delete User"):
-        try:
-            supabase.table("users").delete().eq("username", delete_username).execute()
-            log_activity(supabase, st.session_state.username, f"Deleted user {delete_username}")
-            st.success(f"🗑️ User {delete_username} deleted successfully!")
-        except Exception as e:
-            st.error(f"❌ Failed to delete user: {e}")
-        st.rerun()
+    # Select reservation to edit
+    booking_ids = [r["booking_id"] for r in reservations]
+    selected_booking_id = st.selectbox("Select Reservation to Edit", booking_ids, key="edit_reservation_select")
+    if not selected_booking_id:
+        return
 
-def load_property_room_map():
-    """
-    Loads the property to room type to room numbers mapping based on provided data.
-    Returns a nested dictionary: {"Property": {"Room Type": ["Room No", ...], ...}, ...}
-    """
-    return {
-        "Le Poshe Beach view": {
-            "Double Room": ["101", "102", "202", "203", "204"],
-            "Standard Room": ["201"],
-            "Deluex Double Room Seaview": ["301", "302", "303", "304"],
-            "Day Use": ["Day Use 1", "Day Use 2"],
-            "No Show": ["No Show"]
-        },
-        "La Millionaire Resort": {
-            "Double Room": ["101", "102", "103", "105"],
-            "Deluex Double Room with Balcony": ["205", "304", "305"],
-            "Deluex Triple Room with Balcony": ["201", "202", "203", "204", "301", "302", "303"],
-            "Deluex Family Room with Balcony": ["206", "207", "208", "306", "307", "308"],
-            "Deluex Triple Room": ["402"],
-            "Deluex Family Room": ["401"],
-            "Day Use": ["Day Use 1", "Day Use 2", "Day Use 3", "Day Use 5"],
-            "No Show": ["No Show"]
-        },
-        "Le Poshe Luxury": {
-            "2BHA Appartment": ["101&102", "101", "102"],
-            "2BHA Appartment with Balcony": ["201&202", "201", "202", "301&302", "301", "302", "401&402", "401", "402"],
-            "3BHA Appartment": ["203to205", "203", "204", "205", "303to305", "303", "304", "305", "403to405", "403", "404", "405"],
-            "Double Room with Private Terrace": ["501"],
-            "Day Use": ["Day Use 1", "Day Use 2"],
-            "No Show": ["No Show"]
-        },
-        "Le Poshe Suite": {
-            "2BHA Appartment": ["601&602", "601", "602", "603", "604", "703", "704"],
-            "2BHA Appartment with Balcony": ["701&702", "701", "702"],
-            "Double Room with Terrace": ["801"],
-            "Day Use": ["Day Use 1", "Day Use 2"],
-            "No Show": ["No Show"]
-        },
-        "La Paradise Residency": {
-            "Double Room": ["101", "102", "103", "301", "302", "304"],
-            "Family Room": ["201", "203"],
-            "Triple Room": ["202", "303"],
-            "Day Use": ["Day Use 1", "Day Use 2"],
-            "No Show": ["No Show"]
-        },
-        "La Paradise Luxury": {
-            "3BHA Appartment": ["101to103", "101", "102", "103", "201to203", "201", "202", "203"],
-            "Day Use": ["Day Use 1", "Day Use 2"],
-            "No Show": ["No Show"]
-        },
-        "La Villa Heritage": {
-            "Double Room": ["101", "102", "103"],
-            "4BHA Appartment": ["201to203&301", "201", "202", "203", "301"],
-            "Day Use": ["Day Use 1", "Day Use 2"],
-            "No Show": ["No Show"]
-        },
-        "Le Pondy Beach Side": {
-            "Villa": ["101to104", "101", "102", "103", "104"],
-            "Day Use": ["Day Use 1", "Day Use 2"],
-            "No Show": ["No Show"]
-        },
-        "Le Royce Villa": {
-            "Villa": ["101to102&201to202", "101", "102", "201", "202"],
-            "Day Use": ["Day Use 1", "Day Use 2"],
-            "No Show": ["No Show"]
-        },
-        "La Tamara Luxury": {
-            "3BHA": ["101to103", "101", "102", "103", "104to106", "104", "105", "106", "201to203", "201", "202", "203", "204to206", "204", "205", "206", "301to303", "301", "302", "303", "304to306", "304", "305", "306"],
-            "4BHA": ["401to404", "401", "402", "403", "404"],
-            "Day Use": ["Day Use 1", "Day Use 2"],
-            "No Show": ["No Show"]
-        },
-        "La Antilia Luxury": {
-            "Deluex Suite Room": ["101"],
-            "Deluex Double Room": ["203", "204", "303", "304"],
-            "Family Room": ["201", "202", "301", "302"],
-            "Deluex suite Room with Tarrace": ["404"],
-            "Day Use": ["Day Use 1", "Day Use 2"],
-            "No Show": ["No Show"]
-        },
-        "La Tamara Suite": {
-            "Two Bedroom apartment": ["101&102"],
-            "Deluxe Apartment": ["103&104"],
-            "Deluxe Double Room": ["203", "204", "205"],
-            "Deluxe Triple Room": ["201", "202"],
-            "Deluxe Family Room": ["206"],
-            "Day Use": ["Day Use 1", "Day Use 2"],
-            "No Show": ["No Show"]
-        },
-        "Le Park Resort": {
-            "Villa with Swimming Pool View": ["555&666", "555", "666"],
-            "Villa with Garden View": ["111&222", "111", "222"],
-            "Family Retreate Villa": ["333&444", "333", "444"],
-            "Day Use": ["Day Use 1", "Day Use 2"],
-            "No Show": ["No Show"]
-        },
-        "Villa Shakti": {
-            "2BHA Studio Room": ["101&102"],
-            "2BHA with Balcony": ["202&203", "302&303"],
-            "Family Suite": ["201"],
-            "Family Room": ["301"],
-            "Terrace Room": ["401"],
-            "Day Use": ["Day Use 1", "Day Use 2"],
-            "No Show": ["No Show"]
-        },
-        "Eden Beach Resort": {
-            "Double Room": ["101", "102"],
-            "Deluex Room": ["103", "202"],
-            "Triple Room": ["201"],
-            "Day Use": ["Day Use 1", "Day Use 2"],
-            "No Show": ["No Show"]
-        }
-    }
+    # Find selected reservation
+    reservation = next(r for r in reservations if r["booking_id"] == selected_booking_id)
+    
+    with st.form(key="edit_reservation_form"):
+        property_room_map = st.session_state.get("property_room_map", {})
+        property_name = st.selectbox("Property Name", list(property_room_map.keys()), index=list(property_room_map.keys()).index(reservation["property_name"]))
+        room_types = list(property_room_map[property_name].keys())
+        room_type = st.selectbox("Room Type", room_types, index=room_types.index(reservation["room_type"]) if reservation["room_type"] in room_types else 0)
+        room_no = st.selectbox("Room Number", property_room_map[property_name][room_type], index=property_room_map[property_name][room_type].index(reservation["room_no"]) if reservation["room_no"] in property_room_map[property_name][room_type] else 0)
+        
+        guest_name = st.text_input("Guest Name", value=reservation["guest_name"])
+        mobile_no = st.text_input("Mobile Number (10 digits)", value=reservation["mobile_no"])
+        no_of_adults = st.number_input("Number of Adults", min_value=1, max_value=20, value=reservation["no_of_adults"])
+        no_of_children = st.number_input("Number of Children", min_value=0, max_value=5, value=reservation["no_of_children"])
+        no_of_infants = st.number_input("Number of Infants", min_value=0, max_value=2, value=reservation["no_of_infants"])
+        check_in = st.date_input("Check-In Date", value=datetime.strptime(reservation["check_in"], "%Y-%m-%d"))
+        check_out = st.date_input("Check-Out Date", value=datetime.strptime(reservation["check_out"], "%Y-%m-%d"))
+        tariff = st.number_input("Tariff per Night", min_value=1000.0, max_value=21500.0, value=float(reservation["tariff"]))
+        advance_amount = st.number_input("Advance Amount", min_value=0.0, value=float(reservation["advance_amount"]))
+        advance_mop = st.selectbox("Advance Payment Method", ["UPI", "Cash", "Card", "Pending", "Advance not paid"], index=["UPI", "Cash", "Card", "Pending", "Advance not paid"].index(reservation["advance_mop"]))
+        mob = st.selectbox("Mode of Booking", ["Direct", "Booking-Drt", "Walk-in", "Website"], index=["Direct", "Booking-Drt", "Walk-in", "Website"].index(reservation["mob"]))
+        breakfast = st.selectbox("Breakfast Plan", ["CP", "EP"], index=["CP", "EP"].index(reservation["breakfast"]))
+        plan_status = st.selectbox("Plan Status", ["Confirmed", "Pending"], index=["Confirmed", "Pending"].index(reservation["plan_status"]))
+        submitted_by = st.selectbox("Submitted By", ["Iswariya", "PRAKASH", "Gayathri", "ANAND", "Amrish", "Nandhini", "Baradhan", "Shan"], index=["Iswariya", "PRAKASH", "Gayathri", "ANAND", "Amrish", "Nandhini", "Baradhan", "Shan"].index(reservation["submitted_by"]))
+        modified_comments = st.text_area("Modified Comments", value=reservation["modified_comments"])
 
-def main():
-    check_authentication()
-    st.title("🏢 TIE Reservations")
-    st.markdown("---")
-    st.sidebar.title("Navigation")
-    page_options = ["Direct Reservations", "View Reservations", "Edit Reservations", "Online Reservations", "Daily Status", "Daily Management Status", "Monthly Consolidation"]
-    if st.session_state.role == "Management":
-        page_options.append("Analytics")
-    if edit_online_available:
-        page_options.insert(4, "Edit Online Reservations")
-    if st.session_state.role == "Admin":
-        page_options.append("User Management")
-        page_options.append("Log Report")  # Added Log Report for Admin
+        submit_button = st.form_submit_button("Update Reservation")
 
-    if st.session_state.user_data:
-        page_options = [p for p in page_options if p in st.session_state.user_data.get("screens", page_options)]
+        if submit_button:
+            # Validate inputs
+            if not guest_name or len(mobile_no) != 10 or not mobile_no.isdigit():
+                st.error("Please provide a valid guest name and 10-digit mobile number.")
+                return
 
-    page = st.sidebar.selectbox("Choose a page", page_options, index=page_options.index(st.session_state.current_page) if st.session_state.current_page in page_options else 0, key="page_select")
-    st.session_state.current_page = page
+            # Calculate derived fields
+            no_of_days = (check_out - check_in).days
+            total_pax = no_of_adults + no_of_children + no_of_infants
+            total_tariff = tariff * no_of_days
+            balance_amount = total_tariff - advance_amount
+            balance_mop = "no balance" if balance_amount == 0 else random.choice(["UPI", "Cash", "Card", "Pending"])
 
-    if st.sidebar.button("🔄 Refresh All Data"):
-        st.cache_data.clear()
-        try:
-            st.session_state.reservations = load_reservations_from_supabase()
-            st.session_state.online_reservations = load_online_reservations_from_supabase()
-            log_activity(supabase, st.session_state.username, "Refreshed all data")
-            st.success("✅ Data refreshed from database!")
-        except Exception as e:
-            st.warning(f"⚠️ Data refresh partially failed: {e}")
-        st.rerun()
+            # Prepare updated data
+            updated_data = {
+                "property_name": property_name,
+                "room_no": room_no,
+                "guest_name": guest_name,
+                "mobile_no": mobile_no,
+                "no_of_adults": no_of_adults,
+                "no_of_children": no_of_children,
+                "no_of_infants": no_of_infants,
+                "total_pax": total_pax,
+                "check_in": check_in.strftime("%Y-%m-%d"),
+                "check_out": check_out.strftime("%Y-%m-%d"),
+                "no_of_days": no_of_days,
+                "tariff": tariff,
+                "total_tariff": total_tariff,
+                "advance_amount": advance_amount,
+                "balance_amount": balance_amount,
+                "advance_mop": advance_mop,
+                "balance_mop": balance_mop,
+                "mob": mob,
+                "room_type": room_type,
+                "breakfast": breakfast,
+                "plan_status": plan_status,
+                "submitted_by": submitted_by,
+                "modified_by": st.session_state.username,
+                "modified_comments": modified_comments,
+                "payment_status": "Fully Paid" if balance_amount == 0 else random.choice(["Partially Paid", "Not Paid"])
+            }
 
-    if page == "Direct Reservations":
-        show_new_reservation_form()
-        log_activity(supabase, st.session_state.username, "Accessed Direct Reservations")
-    elif page == "View Reservations":
-        show_reservations()
-        log_activity(supabase, st.session_state.username, "Accessed View Reservations")
-    elif page == "Edit Reservations":
-        show_edit_reservations()
-        log_activity(supabase, st.session_state.username, "Accessed Edit Reservations")
-    elif page == "Online Reservations":
-        show_online_reservations()
-        log_activity(supabase, st.session_state.username, "Accessed Online Reservations")
-    elif page == "Edit Online Reservations" and edit_online_available:
-        show_edit_online_reservations(st.session_state.selected_booking_id)
-        if st.session_state.selected_booking_id:
-            st.session_state.selected_booking_id = None
-            st.query_params.clear()
-        log_activity(supabase, st.session_state.username, "Accessed Edit Online Reservations")
-    elif page == "Daily Status":
-        show_daily_status()
-        log_activity(supabase, st.session_state.username, "Accessed Daily Status")
-    elif page == "Daily Management Status" and st.session_state.current_page == "Daily Management Status":
-        show_dms()
-        log_activity(supabase, st.session_state.username, "Accessed Daily Management Status")
-    elif page == "Analytics" and st.session_state.role == "Management":
-        show_analytics()
-        log_activity(supabase, st.session_state.username, "Accessed Analytics")
-    elif page == "Monthly Consolidation":
-        show_monthly_consolidation()
-        log_activity(supabase, st.session_state.username, "Accessed Monthly Consolidation")
-    elif page == "User Management" and st.session_state.role == "Admin":
-        show_user_management()
-        log_activity(supabase, st.session_state.username, "Accessed User Management")
-    elif page == "Log Report" and st.session_state.role == "Admin":
-        show_log_report(supabase)
-        log_activity(supabase, st.session_state.username, "Accessed Log Report")
+            try:
+                # Update in Supabase
+                response = st.session_state.supabase.table("reservations").update(updated_data).eq("booking_id", selected_booking_id).execute()
+                if response.data:
+                    st.success(f"Reservation {selected_booking_id} updated successfully!")
+                    from log import log_activity
+                    log_activity(st.session_state.supabase, st.session_state.username, f"Updated reservation {selected_booking_id}")
+                    st.session_state.reservations = load_reservations_from_supabase()  # Refresh data
+                else:
+                    st.error("Failed to update reservation.")
+            except Exception as e:
+                st.error(f"Error updating reservation: {str(e)}")
 
-    # Display username before Log Out button
-    if st.session_state.authenticated:
-        st.sidebar.write(f"Logged in as: {st.session_state.username}")
-    if st.sidebar.button("Log Out"):
-        log_activity(supabase, st.session_state.username, "Logged out")
-        st.cache_data.clear()
-        st.cache_resource.clear()
-        for key in list(st.session_state.keys()):
-            del st.session_state[key]
-        st.session_state.authenticated = False
-        st.session_state.role = None
-        st.session_state.reservations = []
-        st.session_state.online_reservations = []
-        st.session_state.edit_mode = False
-        st.session_state.edit_index = None
-        st.session_state.online_edit_mode = False
-        st.session_state.online_edit_index = None
-        st.session_state.current_page = "Direct Reservations"
-        st.session_state.selected_booking_id = None
-        st.query_params.clear()
-        st.rerun()
+# Function to show analytics for direct reservations
+def show_analytics():
+    if st.session_state.role != "Management":
+        st.error("❌ Access Denied: Analytics is available only for Management.")
+        return
 
-if __name__ == "__main__":
-    main()
+    st.header("Direct Reservations Analytics")
+    reservations = st.session_state.get("reservations", load_reservations_from_supabase())
+    if not reservations:
+        st.info("No direct reservations available for analytics.")
+        return
+
+    df = pd.DataFrame(reservations)
+    
+    # Summary statistics
+    st.subheader("Summary")
+    total_bookings = len(df)
+    total_revenue = df["total_tariff"].sum()
+    avg_tariff = df["total_tariff"].mean()
+    st.write(f"Total Bookings: {total_bookings}")
+    st.write(f"Total Revenue: ₹{total_revenue:,.2f}")
+    st.write(f"Average Tariff per Booking: ₹{avg_tariff:,.2f}")
+
+    # Bookings by property
+    st.subheader("Bookings by Property")
+    property_counts = df["property_name"].value_counts()
+    st.bar_chart(property_counts)
+
+    # Payment status distribution
+    st.subheader("Payment Status Distribution")
+    payment_status_counts = df["payment_status"].value_counts()
+    st.bar_chart(payment_status_counts)
+
+    # Revenue by property
+    st.subheader("Revenue by Property")
+    revenue_by_property = df.groupby("property_name")["total_tariff"].sum()
+    st.bar_chart(revenue_by_property)
