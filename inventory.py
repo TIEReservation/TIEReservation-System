@@ -276,9 +276,9 @@ def load_combined_bookings(property: str, start_date: date, end_date: date) -> L
         online_bookings = []
         direct_bookings = []
         for query_property in query_properties:
-            online_response = supabase.table("online_reservations").select("*").eq("property", query_property).gte("check_in", str(start_date)).lte("check_out", str(end_date)).execute()
+            online_response = supabase.table("online_reservations").select("*").in_("property", query_properties).lte("check_in", str(end_date)).gte("check_out", str(start_date)).execute()
             online_bookings.extend([normalize_booking(b, True) for b in (online_response.data or []) if normalize_booking(b, True)])
-            direct_response = supabase.table("reservations").select("*").eq("property_name", query_property).gte("check_in", str(start_date)).lte("check_out", str(end_date)).execute()
+            direct_response = supabase.table("reservations").select("*").eq("property_name", query_property).lte("check_in", str(end_date)).gte("check_out", str(start_date)).execute()
             direct_bookings.extend([normalize_booking(b, False) for b in (direct_response.data or []) if normalize_booking(b, False)])
         return [b for b in online_bookings + direct_bookings if b]
     except Exception as e:
@@ -295,6 +295,17 @@ def filter_bookings_for_day(bookings: List[Dict], target_date: date) -> List[Dic
         try:
             check_in = date.fromisoformat(b["check_in"]) if b.get("check_in") else None
             check_out = date.fromisoformat(b["check_out"]) if b.get("check_out") else None
+
+            # ---- NEW: Only show if Confirmed AND (Fully Paid OR Partially Paid) ----
+            booking_status = sanitize_string(b.get("booking_status", "")).strip()
+            payment_status = sanitize_string(b.get("payment_status", "")).strip()
+
+            if booking_status != "Confirmed":
+                continue
+            if payment_status not in ["Fully Paid", "Partially Paid"]:
+                continue
+            # ------------------------------------------------------------------------
+
             if check_in and check_out and check_in <= target_date < check_out:
                 b_copy = b.copy()
                 b_copy['target_date'] = target_date
