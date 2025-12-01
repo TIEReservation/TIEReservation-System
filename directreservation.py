@@ -116,7 +116,7 @@ def load_property_room_map():
         "Le Park Resort": {
             "Villa with Swimming Pool View": ["555&666", "555", "666"],
             "Villa with Garden View": ["111&222", "111", "222"],
-            "Family Retreate Villa": ["333&444", "333", "444"],
+            "Family Retreat Villa": ["333&444", "333", "444"],
             "Day Use": ["Day Use 1", "Day Use 2"],
             "No Show": ["No Show"],
             "Others": []
@@ -135,6 +135,30 @@ def load_property_room_map():
             "Double Room": ["101", "102"],
             "Deluex Room": ["103", "202"],
             "Triple Room": ["201"],
+            "Day Use": ["Day Use 1", "Day Use 2"],
+            "No Show": ["No Show"],
+            "Others": []
+        },
+        "La Coromandel Luxury": {
+            "King Suite": ["101", "102"],
+            "Family Suite": ["103"],
+            "Double Room with Balcony": ["201", "202", "203", "204"],
+            "Double Room": ["205", "206"],
+            "Double Room with Terrace": ["301"],
+            "Day Use": ["Day Use 1", "Day Use 2"],
+            "No Show": ["No Show"],
+            "Others": []
+        },
+        "Le Terra": {
+            "Luxury Double": ["103", "106"],
+            "Deluxe Family suite": ["101", "102", "104", "105"],
+            "Standard Double": ["107"],
+            "Day Use": ["Day Use 1", "Day Use 2"],
+            "No Show": ["No Show"],
+            "Others": []
+        },
+        "Happymates Forest Retreat": {
+            "Entire Villa": ["101", "102"],
             "Day Use": ["Day Use 1", "Day Use 2"],
             "No Show": ["No Show"],
             "Others": []
