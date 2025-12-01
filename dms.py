@@ -20,6 +20,8 @@ property_mapping = {
     "Le Poshe Beach VIEW": "Le Poshe Beach view",
     "Le Poshe Beachview": "Le Poshe Beach view",
     "Millionaire": "La Millionaire Resort",
+    "Le Pondy Beach Side": "Le Pondy Beachside",
+    "Le Teera": "Le Terra"
 }
 
 # Table CSS (your exact original)
