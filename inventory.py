@@ -358,7 +358,7 @@ def create_inventory_table(assigned: List[Dict], over: List[Dict], prop: str, ta
 
     return pd.DataFrame(rows, columns=cols)
 # ──────────────────────────────────────────────────────────────────────────────
-# Extract Stats – uses "Hotel Receivable"
+# Extract Stats – uses "Per Night" for daily value, full for others
 # ──────────────────────────────────────────────────────────────────────────────
 def extract_stats_from_table(df: pd.DataFrame, mob_types: List[str]) -> Dict:
     occupied = df[df["Booking ID"].str.contains('<a', na=False)].copy()
@@ -369,14 +369,15 @@ def extract_stats_from_table(df: pd.DataFrame, mob_types: List[str]) -> Dict:
     def to_int(col):
         return pd.to_numeric(occupied[col], errors='coerce').fillna(0).astype(int)
 
-    occupied["Hotel Receivable"] = to_float("Hotel Receivable")
-    occupied["GST"] = to_float("GST")
-    occupied["Commission"] = to_float("Commission")
-    occupied["Advance"] = to_float("Advance")
-    occupied["Balance"] = to_float("Balance")
-    occupied["Total Pax"] = to_int("Total Pax")
+    occupied["Per Night"] = to_float("Per Night")
+    occupied["Hotel Receivable"] = to_float("Hotel Receivable")  # Full, only on check-in
+    occupied["GST"] = to_float("GST")  # Full, only on check-in
+    occupied["Commission"] = to_float("Commission")  # Full, only on check-in
+    occupied["Advance"] = to_float("Advance")  # Full, only on check-in primary
+    occupied["Balance"] = to_float("Balance")  # Full, only on check-in primary
+    occupied["Total Pax"] = to_int("Total Pax")  # Unchanged (per-room split sums to booking total)
 
-    # MOP
+    # MOP (unchanged: uses full Advance/Balance on check-in)
     mop_data = {m: 0.0 for m in ["UPI","Cash","Go-MMT","Agoda","NOT PAID","Expenses","Bank Transfer","Stayflexi","Card Payment","Expedia","Cleartrip","Website"]}
     total_cash = total = 0.0
 
@@ -395,21 +396,21 @@ def extract_stats_from_table(df: pd.DataFrame, mob_types: List[str]) -> Dict:
     mop_data["Total Cash"] = total_cash
     mop_data["Total"] = total
 
-    # DTD
+    # DTD: Use Per Night sum for value (daily prorated hotel receivable)
     dtd = {m: {"rooms":0,"value":0.0,"comm":0.0,"gst":0.0,"pax":0} for m in mob_types}
     dtd_rooms = len(occupied)
-    dtd_value = occupied["Hotel Receivable"].sum()
-    dtd_comm = occupied["Commission"].sum()
-    dtd_gst = occupied["GST"].sum()
+    dtd_value = occupied["Per Night"].sum()  # Sum of per_night values
+    dtd_comm = occupied["Commission"].sum()  # Full on check-in
+    dtd_gst = occupied["GST"].sum()  # Full on check-in
     dtd_pax = occupied["Total Pax"].sum()
 
     for _, row in occupied.iterrows():
         mob_raw = sanitize_string(row["MOB"])
         mob = next((m for m, vs in mob_mapping.items() if mob_raw.upper() in [v.upper() for v in vs]), "Booking")
         dtd[mob]["rooms"] += 1
-        dtd[mob]["value"] += row["Hotel Receivable"]
-        dtd[mob]["comm"] += row["Commission"]
-        dtd[mob]["gst"] += row["GST"]
+        dtd[mob]["value"] += row["Per Night"]  # Use per_night for daily value
+        dtd[mob]["comm"] += row["Commission"]  # Full
+        dtd[mob]["gst"] += row["GST"]  # Full
         dtd[mob]["pax"] += row["Total Pax"]
 
     for m in mob_types:
@@ -461,27 +462,26 @@ def show_daily_status():
                 daily = filter_bookings_for_day(bookings, day)
                 st.markdown(f"### {day.strftime('%b %d, %Y')}")
 
+                assigned, over = assign_inventory_numbers(daily, prop)
+                df = create_inventory_table(assigned, over, prop, day)
+
+                stats = extract_stats_from_table(df, mob_types)
+                dtd = stats["dtd"]
+                mop_data = stats["mop"]
+
+                mtd_rooms += dtd["Total"]["rooms"]
+                mtd_value += dtd["Total"]["value"]
+                mtd_comm += dtd["Total"]["comm"]
+                mtd_gst += dtd["Total"]["gst"]
+                mtd_pax += dtd["Total"]["pax"]
+                for m in mob_types:
+                    mtd[m]["rooms"] += dtd[m]["rooms"]
+                    mtd[m]["value"] += dtd[m]["value"]
+                    mtd[m]["comm"] += dtd[m]["comm"]
+                    mtd[m]["gst"] += dtd[m]["gst"]
+                    mtd[m]["pax"] += dtd[m]["pax"]
+
                 if daily:
-                    assigned, over = assign_inventory_numbers(daily, prop)
-                    df = create_inventory_table(assigned, over, prop, day)
-
-                    stats = extract_stats_from_table(df, mob_types)
-                    dtd = stats["dtd"]
-                    mop_data = stats["mop"]
-
-                    if day <= today:
-                        mtd_rooms += dtd["Total"]["rooms"]
-                        mtd_value += dtd["Total"]["value"]
-                        mtd_comm += dtd["Total"]["comm"]
-                        mtd_gst += dtd["Total"]["gst"]
-                        mtd_pax += dtd["Total"]["pax"]
-                        for m in mob_types:
-                            mtd[m]["rooms"] += dtd[m]["rooms"]
-                            mtd[m]["value"] += dtd[m]["value"]
-                            mtd[m]["comm"] += dtd[m]["comm"]
-                            mtd[m]["gst"] += dtd[m]["gst"]
-                            mtd[m]["pax"] += dtd[m]["pax"]
-
                     st.markdown(f'<div class="custom-scrollable-table">{df.to_html(escape=False,index=False)}</div>', unsafe_allow_html=True)
 
                     # Tables
@@ -509,7 +509,7 @@ def show_daily_status():
 
                     total_inventory = len([i for i in PROPERTY_INVENTORY.get(prop,{}).get("all",[]) if not i.startswith(("Day Use","No Show"))])
                     occ_pct = (dtd["Total"]["rooms"] / total_inventory * 100) if total_inventory else 0.0
-                    mtd_occ_pct = (mtd_rooms / (total_inventory * min(today.day, day.day)) * 100) if total_inventory else 0.0
+                    mtd_occ_pct = (mtd_rooms / (total_inventory * day.day) * 100) if total_inventory and day.day > 0 else 0.0
 
                     summary = {
                         "Rooms Sold": dtd["Total"]["rooms"],
