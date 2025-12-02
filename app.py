@@ -50,79 +50,158 @@ def check_authentication():
         st.session_state.current_page = "Direct Reservations"
         st.session_state.selected_booking_id = None
         st.session_state.user_data = None
-        st.session_state.permissions = None  # Initialize permissions attribute
+        st.session_state.permissions = None
 
     if not st.session_state.authenticated:
         st.title("TIE Reservations Login")
         username = st.text_input("Username")
         password = st.text_input("Password", type="password")
         if st.button("Login"):
+            authenticated = False
+            
+            # Check hardcoded credentials first
             if username == "Admin" and password == "Admin2024":
                 st.session_state.authenticated = True
                 st.session_state.username = "Admin"
                 st.session_state.role = "Admin"
                 st.session_state.current_page = "User Management"
                 st.session_state.permissions = {"add": True, "edit": True, "delete": True}
-            elif username == "Management" and password == "TIE2024":
-                st.session_state.authenticated = True
-                st.session_state.username = "Management"
-                st.session_state.role = "Management"
-                st.session_state.current_page = "Inventory Dashboard"  # ← CHANGED
-                st.session_state.permissions = {"add": True, "edit": True, "delete": False}
-            elif username == "ReservationTeam" and password == "TIE123":
-                st.session_state.authenticated = True
-                st.session_state.username = "ReservationTeam"
-                st.session_state.role = "ReservationTeam"
-                st.session_state.current_page = "Direct Reservations"
-                st.session_state.permissions = {"add": True, "edit": False, "delete": False}
-            else:
+                st.session_state.user_data = None
+                authenticated = True
+            elif username == "Management" and password == "Admin2024":
+                # Check if Management user exists in database with custom configuration
                 try:
-                    users = supabase.table("users").select("*").eq("username", username).eq("password_hash", password).execute().data
-                    if users and len(users) == 1:
-                        user_data = users[0]
+                    user_data = supabase.table("users").select("*").eq("username", "Management").execute().data
+                    if user_data and len(user_data) > 0:
+                        # Load from database
+                        user_info = user_data[0]
                         st.session_state.authenticated = True
-                        st.session_state.username = username
-                        st.session_state.role = user_data["role"]
-                        st.session_state.user_data = user_data
-                        st.session_state.permissions = user_data.get("permissions", {"add": False, "edit": False, "delete": False})
-                        valid_screens = ["Inventory Dashboard", "Direct Reservations", "View Reservations", "Edit Direct Reservation", "Online Reservations", "Edit Online Reservations", "Daily Status", "Daily Management Status", "Analytics", "Monthly Consolidation"]
-                        if st.session_state.role == "Admin":
-                            valid_screens.append("User Management")
-                        elif st.session_state.role == "Management":
-                            valid_screens = [s for s in valid_screens if s not in ["User Management"]]
-                        st.session_state.current_page = next((s for s in valid_screens if s in user_data.get("screens", ["Direct Reservations"])), "Direct Reservations")
+                        st.session_state.username = "Management"
+                        st.session_state.role = user_info.get("role", "Management")
+                        st.session_state.user_data = user_info
+                        st.session_state.permissions = user_info.get("permissions", {"add": True, "edit": True, "delete": False})
+                        
+                        user_screens = user_info.get("screens", [])
+                        st.session_state.current_page = user_screens[0] if user_screens else "Inventory Dashboard"
                     else:
-                        st.error("Invalid username or password.")
-                except Exception as e:
-                    st.warning(f"Database query failed: {e}. Falling back to hardcoded credentials.")
-                    if username == "Admin" and password == "Admin2024":
-                        st.session_state.authenticated = True
-                        st.session_state.username = "Admin"
-                        st.session_state.role = "Admin"
-                        st.session_state.current_page = "User Management"
-                        st.session_state.permissions = {"add": True, "edit": True, "delete": True}
-                    elif username == "Management" and password == "TIE2024":
+                        # Use default hardcoded settings
                         st.session_state.authenticated = True
                         st.session_state.username = "Management"
                         st.session_state.role = "Management"
-                        st.session_state.current_page = "Inventory Dashboard"  # ← CHANGED
+                        st.session_state.current_page = "Inventory Dashboard"
                         st.session_state.permissions = {"add": True, "edit": True, "delete": False}
-                    elif username == "ReservationTeam" and password == "TIE123":
+                        st.session_state.user_data = None
+                    authenticated = True
+                except Exception as e:
+                    st.error(f"Error loading Management user config: {e}")
+                    # Fallback to hardcoded
+                    st.session_state.authenticated = True
+                    st.session_state.username = "Management"
+                    st.session_state.role = "Management"
+                    st.session_state.current_page = "Inventory Dashboard"
+                    st.session_state.permissions = {"add": True, "edit": True, "delete": False}
+                    st.session_state.user_data = None
+                    authenticated = True
+                    
+            elif username == "ReservationTeam" and password == "Admin2024":
+                # Check if ReservationTeam user exists in database with custom configuration
+                try:
+                    user_data = supabase.table("users").select("*").eq("username", "ReservationTeam").execute().data
+                    if user_data and len(user_data) > 0:
+                        user_info = user_data[0]
+                        st.session_state.authenticated = True
+                        st.session_state.username = "ReservationTeam"
+                        st.session_state.role = user_info.get("role", "ReservationTeam")
+                        st.session_state.user_data = user_info
+                        st.session_state.permissions = user_info.get("permissions", {"add": True, "edit": False, "delete": False})
+                        
+                        user_screens = user_info.get("screens", [])
+                        st.session_state.current_page = user_screens[0] if user_screens else "Direct Reservations"
+                    else:
                         st.session_state.authenticated = True
                         st.session_state.username = "ReservationTeam"
                         st.session_state.role = "ReservationTeam"
                         st.session_state.current_page = "Direct Reservations"
                         st.session_state.permissions = {"add": True, "edit": False, "delete": False}
+                        st.session_state.user_data = None
+                    authenticated = True
+                except Exception as e:
+                    st.error(f"Error loading ReservationTeam user config: {e}")
+                    st.session_state.authenticated = True
+                    st.session_state.username = "ReservationTeam"
+                    st.session_state.role = "ReservationTeam"
+                    st.session_state.current_page = "Direct Reservations"
+                    st.session_state.permissions = {"add": True, "edit": False, "delete": False}
+                    st.session_state.user_data = None
+                    authenticated = True
+                    
+            elif username == "ReservationHead" and password == "Admin2024":
+                # Check if ReservationHead user exists in database with custom configuration
+                try:
+                    user_data = supabase.table("users").select("*").eq("username", "ReservationHead").execute().data
+                    if user_data and len(user_data) > 0:
+                        user_info = user_data[0]
+                        st.session_state.authenticated = True
+                        st.session_state.username = "ReservationHead"
+                        st.session_state.role = user_info.get("role", "ReservationHead")
+                        st.session_state.user_data = user_info
+                        st.session_state.permissions = user_info.get("permissions", {"add": True, "edit": False, "delete": False})
+                        
+                        user_screens = user_info.get("screens", [])
+                        st.session_state.current_page = user_screens[0] if user_screens else "Direct Reservations"
+                    else:
+                        st.session_state.authenticated = True
+                        st.session_state.username = "ReservationHead"
+                        st.session_state.role = "ReservationHead"
+                        st.session_state.current_page = "Direct Reservations"
+                        st.session_state.permissions = {"add": True, "edit": False, "delete": False}
+                        st.session_state.user_data = None
+                    authenticated = True
+                except Exception as e:
+                    st.error(f"Error loading ReservationHead user config: {e}")
+                    st.session_state.authenticated = True
+                    st.session_state.username = "ReservationHead"
+                    st.session_state.role = "ReservationHead"
+                    st.session_state.current_page = "Direct Reservations"
+                    st.session_state.permissions = {"add": True, "edit": False, "delete": False}
+                    st.session_state.user_data = None
+                    authenticated = True
+            else:
+                # Try database authentication with proper password hashing
+                try:
+                    user_data = validate_user(supabase, username, password)
+                    if user_data:
+                        st.session_state.authenticated = True
+                        st.session_state.username = username
+                        st.session_state.role = user_data["role"]
+                        st.session_state.user_data = user_data
+                        st.session_state.permissions = user_data.get("permissions", {"add": False, "edit": False, "delete": False})
+                        
+                        valid_screens = ["Inventory Dashboard", "Direct Reservations", "View Reservations", "Edit Direct Reservation", "Online Reservations", "Edit Online Reservations", "Daily Status", "Daily Management Status", "Analytics", "Monthly Consolidation", "Summary Report"]
+                        
+                        if st.session_state.role == "Admin":
+                            valid_screens.append("User Management")
+                        elif st.session_state.role == "Management":
+                            valid_screens = [s for s in valid_screens if s not in ["User Management"]]
+                        
+                        user_screens = user_data.get("screens", ["Direct Reservations"])
+                        st.session_state.current_page = next((s for s in valid_screens if s in user_screens), "Direct Reservations")
+                        authenticated = True
                     else:
                         st.error("Invalid username or password.")
-            if st.session_state.authenticated:
+                except Exception as e:
+                    st.error(f"Database authentication failed: {e}")
+                    st.error("Invalid username or password.")
+            
+            if authenticated:
                 query_params = st.query_params
                 query_booking_id = query_params.get("booking_id", [None])[0]
                 if query_booking_id:
                     st.session_state.selected_booking_id = query_booking_id
                 try:
-                    st.session_state.reservations = load_reservations_from_supabase()
-                    st.session_state.online_reservations = load_online_reservations_from_supabase()
+                    if st.session_state.role != "Admin":
+                        st.session_state.reservations = load_reservations_from_supabase()
+                        st.session_state.online_reservations = load_online_reservations_from_supabase()
                     st.success(f"{username} login successful!")
                 except Exception as e:
                     st.session_state.reservations = []
@@ -133,20 +212,30 @@ def check_authentication():
     else:
         query_params = st.query_params
         query_page = query_params.get("page", [st.session_state.current_page])[0]
-        valid_screens = ["Inventory Dashboard", "Direct Reservations", "View Reservations", "Edit Direct Reservation", "Online Reservations", "Edit Online Reservations", "Daily Status", "Daily Management Status", "Analytics", "Monthly Consolidation"]
+        
+        valid_screens = ["Inventory Dashboard", "Direct Reservations", "View Reservations", "Edit Direct Reservation", "Online Reservations", "Edit Online Reservations", "Daily Status", "Daily Management Status", "Analytics", "Monthly Consolidation", "Summary Report"]
+        
         if st.session_state.role == "Admin":
-            valid_screens.append("User Management")
+            valid_screens = ["User Management", "Log Report"]
         elif st.session_state.role == "Management":
             valid_screens = [s for s in valid_screens if s not in ["User Management"]]
-        if st.session_state.user_data and query_page not in st.session_state.user_data.get("screens", valid_screens):
-            st.error(f"Access Denied: You do not have permission to view {query_page}.")
-            st.session_state.current_page = "Direct Reservations"
-        elif query_page in valid_screens:
-            st.session_state.current_page = query_page
+        
+        # Apply screen filtering for users with configured screens
+        if st.session_state.user_data:
+            user_screens = st.session_state.user_data.get("screens", [])
+            if query_page not in user_screens and query_page not in ["User Management", "Log Report"]:
+                st.error(f"Access Denied: You do not have permission to view {query_page}.")
+                st.session_state.current_page = user_screens[0] if user_screens else "Direct Reservations"
+            elif query_page in valid_screens or query_page in user_screens:
+                st.session_state.current_page = query_page
+        else:
+            # For users without user_data (like Admin), use valid_screens
+            if query_page in valid_screens:
+                st.session_state.current_page = query_page
+        
         query_booking_id = query_params.get("booking_id", [None])[0]
         if query_booking_id:
             st.session_state.selected_booking_id = query_booking_id
-
 def show_user_management():
     if st.session_state.role != "Admin":
         st.error("Access Denied: User Management is available only for Admin.")
