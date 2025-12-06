@@ -1103,3 +1103,8 @@ def show_analytics():
             labels={"Total Tariff": "Revenue (₹)"}
         )
         st.plotly_chart(fig_bar, use_container_width=True, key="analytics_bar_chart")
+# ─────────────────────────────────────────────────────────────────────────────
+# Run
+# ─────────────────────────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    show_daily_status()
