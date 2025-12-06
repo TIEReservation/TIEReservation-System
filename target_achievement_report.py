@@ -1,4 +1,4 @@
-# target_achievement_report.py - FINAL VERSION WITH BALANCE DAYS & BALANCE ROOMS
+# target_achievement_report.py - FINAL PERFECT VERSION (December 2025)
 
 import streamlit as st
 from datetime import date
@@ -21,10 +21,14 @@ except:
 # -------------------------- Property Mapping --------------------------
 PROPERTY_MAPPING = {
     "La Millionaire Luxury Resort": "La Millionaire Resort",
-    "Le Poshe Beach View": "Le Poshe Beach view", "Le Poshe Beach view": "Le Poshe Beach view",
-    "Le Poshe Beach VIEW": "Le Poshe Beach view", "Le Poshe Beachview": "Le Poshe Beach view",
-    "Millionaire": "La Millionaire Resort", "Le Pondy Beach Side": "Le Pondy Beachside",
-    "Le Teera": "Le Terra"
+    "Le Poshe Beach View": "Le Poshe Beach view",
+    "Le Poshe Beach view": "Le Poshe Beach view",
+    "Le Poshe Beach VIEW": "Le Poshe Beach view",
+    "Le Poshe Beachview": "Le Poshe Beach view",
+    "Millionaire": "La Millionaire Resort",
+    "Le Pondy Beach Side": "Le Pondy Beachside",
+    "Le Teera": "Le Terra",
+    # Add any other variations you see in DB here
 }
 
 reverse_mapping = {c: [] for c in set(PROPERTY_MAPPING.values())}
@@ -36,37 +40,76 @@ def normalize_property_name(prop_name: str) -> str:
 
 # -------------------------- December 2025 Targets --------------------------
 DECEMBER_2025_TARGETS = {
-    "La Millionaire Resort": 2200000, "Le Poshe Beach view": 800000, "Le Park Resort": 800000,
-    "La Tamara Luxury": 1848000, "Le Poshe Luxury": 1144000, "Le Poshe Suite": 475000,
-    "Eden Beach Resort": 438000, "La Antilia Luxury": 1075000, "La Coromandel Luxury": 800000,
-    "La Tamara Suite": 640000, "Villa Shakti": 652000, "La Paradise Luxury": 467000,
-    "La Villa Heritage": 467000, "La Paradise Residency": 534000,
-    "Le Pondy Beachside": 245000, "Le Royce Villa": 190000,
+    "La Millionaire Resort": 2200000,
+    "Le Poshe Beach view": 800000,
+    "Le Park Resort": 800000,
+    "La Tamara Luxury": 1848000,
+    "Le Poshe Luxury": 1144000,
+    "Le Poshe Suite": 475000,
+    "Eden Beach Resort": 438000,
+    "La Antilia Luxury": 1075000,
+    "La Coromandel Luxury": 800000,
+    "La Tamara Suite": 640000,
+    "Villa Shakti": 652000,
+    "La Paradise Luxury": 467000,
+    "La Villa Heritage": 467000,
+    "La Paradise Residency": 534000,
+    "Le Pondy Beachside": 245000,
+    "Le Royce Villa": 190000,
 }
 
 # -------------------------- Property Inventory --------------------------
 PROPERTY_INVENTORY = {
     "Le Poshe Beach view": {"all": ["101","102","201","202","203","204","301","302","303","304","Day Use 1","Day Use 2","No Show"]},
     "La Millionaire Resort": {"all": ["101","102","103","105","201","202","203","204","205","206","207","208","301","302","303","304","305","306","307","308","401","402","Day Use 1","Day Use 2","Day Use 3","Day Use 4","Day Use 5","No Show"]},
+    "Le Poshe Luxury": {"all": ["101","102","201","202","203","204","205","301","302","303","304","305","401","402","403","404","405","501","Day Use 1","Day Use 2","No Show"]},
+    "Le Poshe Suite": {"all": ["601","602","603","604","701","702","703","704","801","Day Use 1","Day Use 2","No Show"]},
+    "La Paradise Residency": {"all": ["101","102","103","201","202","203","301","302","303","304","Day Use 1","Day Use 2","No Show"]},
+    "La Paradise Luxury": {"all": ["101","102","103","201","202","203","Day Use 1","Day Use 2","No Show"]},
+    "La Villa Heritage": {"all": ["101","102","103","201","202","203","301","Day Use 1","Day Use 2","No Show"]},
+    "Le Pondy Beachside": {"all": ["101","102","201","202","Day Use 1","Day Use 2","No Show"]},
+    "Le Royce Villa": {"all": ["101","102","201","202","Day Use 1","Day Use 2","No Show"]},
+    "La Tamara Luxury": {"all": ["101","102","103","104","105","106","201","202","203","204","205","206","301","302","303","304","305","306","401","402","403","404","Day Use 1","Day Use 2","No Show"]},
+    "La Antilia Luxury": {"all": ["101","201","202","203","204","301","302","303","304","401","Day Use 1","Day Use 2","No Show"]},
+    "La Tamara Suite": {"all": ["101","102","103","104","201","202","203","204","205","206","Day Use 1","Day Use 2","No Show"]},
+    "Le Park Resort": {"all": ["111","222","333","444","555","666","Day Use 1","Day Use 2","No Show"]},
+    "Villa Shakti": {"all": ["101","102","201","201A","202","203","301","301A","302","303","401","Day Use 1","Day Use 2","No Show"]},
     "Eden Beach Resort": {"all": ["101","102","103","201","202","Day Use 1","Day Use 2","No Show"]},
-    # ... keep all your properties exactly as original
+    "La Coromandel Luxury": {"all": ["101","102","103","201","202","203","204","205","206","301","Day Use 1","Day Use 2","No Show"]},
 }
 
 def get_total_rooms(prop: str) -> int:
     inv = PROPERTY_INVENTORY.get(prop, {"all": []})["all"]
     return len([r for r in inv if not r.startswith(("Day Use", "No Show"))])
 
-# -------------------------- Booking Functions (unchanged) --------------------------
+# -------------------------- Load Properties from DB (CRITICAL FIX) --------------------------
+def load_properties() -> List[str]:
+    try:
+        direct = supabase.table("reservations").select("property_name").execute().data or []
+        online = supabase.table("online_reservations").select("property").execute().data or []
+        props = {
+            normalize_property_name(r.get("property_name") or r.get("property"))
+            for r in direct + online
+            if r.get("property_name") or r.get("property")
+        }
+        return sorted(props)
+    except Exception as e:
+        st.error(f"Error loading properties: {e}")
+        return []
+
+# -------------------------- Booking & Metrics Functions (unchanged) --------------------------
 def load_combined_bookings(prop: str, start: date, end: date) -> List[Dict]:
     normalized = normalize_property_name(prop)
     query_props = [normalized] + reverse_mapping.get(normalized, [])
     try:
-        direct = supabase.table("reservations").select("*").in_("property_name", query_props)\
+        direct = supabase.table("reservations").select("*")\
+            .in_("property_name", query_props)\
             .lte("check_in", str(end)).gte("check_out", str(start))\
             .in_("plan_status", ["Confirmed", "Completed"])\
             .in_("payment_status", ["Partially Paid", "Fully Paid"]).execute().data or []
 
-        online = supabase.table("online_reservations").select("*").in_("property", query_props)\
+        online = supabase.table("online_reservations").select("*")\
+            .in_("property", query_props)\
             .lte("check_in", str(end)).gte("check_out", str(start))\
             .in_("booking_status", ["Confirmed", "Completed"])\
             .in_("payment_status", ["Partially Paid", "Fully Paid"]).execute().data or []
@@ -126,13 +169,13 @@ def compute_daily_metrics(bookings: List[Dict], prop: str, day: date) -> Dict:
             receivable += safe_float(b.get("total_tariff"))
     return {"rooms_sold": rooms_sold, "receivable": receivable}
 
-# -------------------------- MAIN REPORT (FINAL & PERFECT) --------------------------
+# -------------------------- MAIN REPORT (FINAL) --------------------------
 def build_target_achievement_report(props: List[str], dates: List[date], bookings_dict: Dict[str, List[Dict]], current_date: date) -> pd.DataFrame:
     rows = []
     total_target = total_achieved = total_all_booking = total_balance = 0.0
     total_room_nights = total_rooms_sold = total_balance_rooms = total_rooms_count = 0.0
 
-    balance_days = len([d for d in dates if d > current_date])  # e.g. 25 days from 7th Dec
+    balance_days = len([d for d in dates if d > current_date])
 
     for prop in props:
         target = DECEMBER_2025_TARGETS.get(prop, 0)
@@ -150,9 +193,7 @@ def build_target_achievement_report(props: List[str], dates: List[date], booking
             if d > current_date:
                 future_booked_rooms += m["rooms_sold"]
 
-        # CORRECT: Balance Rooms = Available from tomorrow
         balance_rooms = (total_rooms * balance_days) - future_booked_rooms
-
         balance = target - achieved
         achieved_pct = (all_booking / target * 100) if target > 0 else 0
         occupancy = (rooms_sold_total / total_room_nights_available * 100) if total_room_nights_available > 0 else 0
@@ -169,7 +210,7 @@ def build_target_achievement_report(props: List[str], dates: List[date], booking
             "Rooms Sold": int(rooms_sold_total),
             "Occupancy %": round(occupancy, 1),
             "Balance Days": balance_days,
-            "Balance Rooms": max(int(balance_rooms), 0),   # Real unsold rooms from tomorrow
+            "Balance Rooms": max(int(balance_rooms), 0),
             "Per Day Needed": int(per_day_needed)
         })
 
@@ -182,7 +223,6 @@ def build_target_achievement_report(props: List[str], dates: List[date], booking
         total_balance_rooms += balance_rooms
         total_rooms_count += total_rooms
 
-    # TOTAL Row
     total_pct = (total_all_booking / total_target * 100) if total_target > 0 else 0
     total_occupancy = (total_rooms_sold / total_room_nights * 100) if total_room_nights > 0 else 0
     total_per_day = max(total_balance, 0) / balance_days if balance_days > 0 else 0
@@ -219,16 +259,23 @@ def style_dataframe(df):
         .set_properties(**{"text-align": "center"}) \
         .set_table_styles([{"selector": "th", "props": "background-color: #4CAF50; color: white; font-weight: bold;"}])
 
-# -------------------------- UI --------------------------
+# -------------------------- UI (FIXED PROPERTY LOADING) --------------------------
 def show_target_achievement_report():
     st.set_page_config(page_title="Target vs Achievement - Dec 2025", layout="wide")
     st.title("Target vs Achievement Report - December 2025")
 
-    current_date = date(2025, 12, 6)  # Update daily
+    current_date = date(2025, 12, 6)
     year, month = 2025, 12
     _, days_in_month = calendar.monthrange(year, month)
     dates = [date(year, month, d) for d in range(1, days_in_month + 1)]
-    properties = list(DECEMBER_2025_TARGETS.keys())
+
+    # CRITICAL FIX: Load properties from DB + normalize → no more zeros!
+    all_db_properties = load_properties()
+    properties = [p for p in DECEMBER_2025_TARGETS.keys() if p in all_db_properties]
+
+    if not properties:
+        st.error("No targeted properties found in database. Check property names or mapping.")
+        st.stop()
 
     with st.spinner("Loading bookings & generating report..."):
         bookings = {p: load_combined_bookings(p, dates[0], dates[-1]) for p in properties}
