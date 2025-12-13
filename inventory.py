@@ -232,9 +232,7 @@ def assign_inventory_numbers(daily_bookings: List[Dict], property: str):
     assigned, over = [], []
     inv = PROPERTY_INVENTORY.get(property, {"all": []})["all"]
     inv_lookup = {i.strip().lower(): i for i in inv}
-    
-    # Track which rooms are occupied by which booking_id
-    room_bookings = {}  # room_name -> booking_id
+    occupied_rooms = set()
     
     sorted_bookings = sorted(daily_bookings, key=lambda x: (x.get("check_in", ""), x.get("booking_id", "")))
 
@@ -250,30 +248,25 @@ def assign_inventory_numbers(daily_bookings: List[Dict], property: str):
         assigned_rooms = []
         is_overbooking = False
 
-        # First pass: validate all rooms before assigning any
         for r in requested:
             key = r.lower()
             if key not in inv_lookup:
+                over.append(b)
                 is_overbooking = True
                 break
             room_name = inv_lookup[key]
-            
-            # Check if room is already occupied by a DIFFERENT booking
-            if room_name in room_bookings and room_bookings[room_name] != booking_id:
+            if room_name in occupied_rooms:
+                over.append(b)
                 is_overbooking = True
                 break
             assigned_rooms.append(room_name)
 
-        # If any room conflict found, mark entire booking as overbooking
         if is_overbooking or not assigned_rooms:
-            over.append(b)
             continue
 
-        # Only mark rooms as occupied after validation passes
         for room in assigned_rooms:
-            room_bookings[room] = booking_id
+            occupied_rooms.add(room)
 
-        # Calculate per-night charges and distribute pax across rooms
         days = max(b.get("days", 1), 1)
         receivable = b.get("receivable", 0.0)
         num_rooms = len(assigned_rooms)
