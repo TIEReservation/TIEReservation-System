@@ -438,42 +438,6 @@ def extract_stats_from_table(df: pd.DataFrame, mob_types: List[str]) -> Dict:
 # ═══════════════════════════════════════════════════════════════════════════
 def show_daily_status():
     st.title("Daily Status Dashboard")
-    
-    # Add global CSS for freezing columns in ALL tables
-    st.markdown("""
-        <style>
-        /* Freeze first 4 columns in data editor */
-        [data-testid="stDataFrameResizable"] div[data-testid="stDataFrame"] tbody tr td:nth-child(-n+4),
-        [data-testid="stDataFrameResizable"] div[data-testid="stDataFrame"] thead tr th:nth-child(-n+4) {
-            position: sticky !important;
-            z-index: 10 !important;
-            background-color: white !important;
-        }
-        [data-testid="stDataFrameResizable"] div[data-testid="stDataFrame"] tbody tr td:nth-child(1),
-        [data-testid="stDataFrameResizable"] div[data-testid="stDataFrame"] thead tr th:nth-child(1) {
-            left: 0px !important;
-        }
-        [data-testid="stDataFrameResizable"] div[data-testid="stDataFrame"] tbody tr td:nth-child(2),
-        [data-testid="stDataFrameResizable"] div[data-testid="stDataFrame"] thead tr th:nth-child(2) {
-            left: 150px !important;
-        }
-        [data-testid="stDataFrameResizable"] div[data-testid="stDataFrame"] tbody tr td:nth-child(3),
-        [data-testid="stDataFrameResizable"] div[data-testid="stDataFrame"] thead tr th:nth-child(3) {
-            left: 270px !important;
-        }
-        [data-testid="stDataFrameResizable"] div[data-testid="stDataFrame"] tbody tr td:nth-child(4),
-        [data-testid="stDataFrameResizable"] div[data-testid="stDataFrame"] thead tr th:nth-child(4) {
-            left: 390px !important;
-            border-right: 2px solid #d0d0d0 !important;
-        }
-        
-        /* Ensure background stays white even on hover */
-        [data-testid="stDataFrameResizable"] div[data-testid="stDataFrame"] tbody tr:hover td:nth-child(-n+4) {
-            background-color: #f0f2f6 !important;
-        }
-        </style>
-    """, unsafe_allow_html=True)
-    
     if st.button("Refresh Data"):
         st.cache_data.clear()
         st.rerun()
@@ -506,40 +470,28 @@ def show_daily_status():
                 assigned, over = assign_inventory_numbers(daily, prop)
                 display_df, full_df = create_inventory_table(assigned, over, prop, day)
 
-                is_accounts_team = st.session_state.get('role', '') == "Accounts Team"
+                if daily:
+                    is_accounts_team = st.session_state.get('role', '') == "Accounts Team"
 
-                col_config = {
-                    "Inventory No": st.column_config.TextColumn(disabled=True),
-                    "Room No": st.column_config.TextColumn(disabled=True),
-                    "Booking ID": st.column_config.TextColumn(disabled=True),
-                    "Guest Name": st.column_config.TextColumn(disabled=True),
-                    "Mobile No": st.column_config.TextColumn(disabled=True),
-                    "Total Pax": st.column_config.NumberColumn(disabled=True),
-                    "Check In": st.column_config.TextColumn(disabled=True),
-                    "Check Out": st.column_config.TextColumn(disabled=True),
-                    "Days": st.column_config.NumberColumn(disabled=True),
-                    "MOB": st.column_config.TextColumn(disabled=True),
-                    "Per Night": st.column_config.TextColumn(disabled=True),
-                    "Advance Remarks": st.column_config.TextColumn("Advance Remarks", disabled=not is_accounts_team, max_chars=500),
-                    "Balance Remarks": st.column_config.TextColumn("Balance Remarks", disabled=not is_accounts_team, max_chars=500),
-                    "Accounts Status": st.column_config.SelectboxColumn("Accounts Status", options=["Pending", "Completed"], disabled=not is_accounts_team),
-                }
+                    col_config = {
+                        "Inventory No": st.column_config.TextColumn(disabled=True, pinned=True),
+                        "Room No": st.column_config.TextColumn(disabled=True, pinned=True),
+                        "Booking ID": st.column_config.TextColumn(disabled=True, pinned=True),
+                        "Guest Name": st.column_config.TextColumn(disabled=True, pinned=True),
+                        "Mobile No": st.column_config.TextColumn(disabled=True),
+                        "Total Pax": st.column_config.NumberColumn(disabled=True),
+                        "Check In": st.column_config.TextColumn(disabled=True),
+                        "Check Out": st.column_config.TextColumn(disabled=True),
+                        "Days": st.column_config.NumberColumn(disabled=True),
+                        "MOB": st.column_config.TextColumn(disabled=True),
+                        "Per Night": st.column_config.TextColumn(disabled=True),
+                        "Advance Remarks": st.column_config.TextColumn("Advance Remarks", disabled=not is_accounts_team, max_chars=500),
+                        "Balance Remarks": st.column_config.TextColumn("Balance Remarks", disabled=not is_accounts_team, max_chars=500),
+                        "Accounts Status": st.column_config.SelectboxColumn("Accounts Status", options=["Pending", "Completed"], disabled=not is_accounts_team),
+                    }
 
-                # Number of columns to freeze (Inventory No, Room No, Booking ID, Guest Name = 4)
-                num_frozen_cols = 4
-
-                if is_accounts_team:
+                    if is_accounts_team:
                         with st.form(key=f"form_{prop}_{day}"):
-                            edited = st.data_editor(
-                                display_df,
-                                column_config=col_config,
-                                hide_index=True,
-                                use_container_width=True,
-                                num_rows="fixed",
-                                disabled=False,
-                                column_order=None,
-                                key=f"editor_{prop}_{day}",
-                            )
                             edited = st.data_editor(
                                 display_df,
                                 column_config=col_config,
@@ -633,11 +585,10 @@ def show_daily_status():
                                     with st.expander("Error Details"):
                                         for msg in error_details:
                                             st.code(msg)
-                else:
-                    st.data_editor(display_df, column_config=col_config, hide_index=True, use_container_width=True, num_rows="fixed", key=f"readonly_editor_{prop}_{day}")
+                    else:
+                        st.data_editor(display_df, column_config=col_config, hide_index=True, use_container_width=True, num_rows="fixed")
 
-                # Extract stats and accumulate MTD (always run, whether there are bookings or not)
-                if daily:
+                    # Extract stats and accumulate MTD
                     stats = extract_stats_from_table(display_df, mob_types)
                     dtd = stats["dtd"]
                     mop_data = stats["mop"]
