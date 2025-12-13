@@ -1,4 +1,4 @@
-# inventory.py – FIXED VERSION
+# inventory.py – FIXED VERSION with colored columns
 import streamlit as st
 from supabase import create_client, Client
 from datetime import date
@@ -441,7 +441,7 @@ def extract_stats_from_table(df: pd.DataFrame, mob_types: List[str]) -> Dict:
     return {"mop": mop_data, "dtd": dtd}
     
 # ═══════════════════════════════════════════════════════════════════════════
-# UI – Dashboard with reliable save
+# UI – Dashboard with reliable save and highlighted columns
 # ═══════════════════════════════════════════════════════════════════════════
 def show_daily_status():
     st.title("Daily Status Dashboard")
@@ -480,6 +480,14 @@ def show_daily_status():
                 if daily:
                     is_accounts_team = st.session_state.get('role', '') == "Accounts Team"
 
+                    # Style function for highlighting columns
+                    def highlight_financial_cols(df):
+                        styles = pd.DataFrame('', index=df.index, columns=df.columns)
+                        for col in ['Total', 'Advance', 'Balance']:
+                            if col in df.columns:
+                                styles[col] = 'background-color: #FFE4E1'
+                        return styles
+
                     col_config = {
                         "Inventory No": st.column_config.TextColumn(disabled=True, pinned=True),
                         "Room No": st.column_config.TextColumn(disabled=True, pinned=True),
@@ -500,7 +508,18 @@ def show_daily_status():
                     # Create unique key for this property-day combination
                     unique_key = f"{prop.replace(' ', '_')}_{day.strftime('%Y%m%d')}"
 
+                    # Show styled preview with highlighted columns
+                    
+                    st.dataframe(
+                        display_df.style.apply(lambda x: highlight_financial_cols(display_df), axis=None),
+                        use_container_width=True,
+                        hide_index=True,
+                        height=400
+                    )
+
+                    # Show editable version for Accounts Team
                     if is_accounts_team:
+                        st.markdown("**✏️ Edit Remarks & Status (Accounts Team)**")
                         with st.form(key=f"form_{unique_key}"):
                             edited = st.data_editor(
                                 display_df,
@@ -596,16 +615,6 @@ def show_daily_status():
                                     with st.expander("Error Details"):
                                         for msg in error_details:
                                             st.code(msg)
-                    else:
-                        st.data_editor(
-                            display_df, 
-                            column_config=col_config, 
-                            hide_index=True, 
-                            use_container_width=True, 
-                            num_rows="fixed",
-                            disabled=True,
-                            key=f"viewer_{unique_key}"
-                        )
 
                     # Extract stats and accumulate MTD
                     stats = extract_stats_from_table(display_df, mob_types)
