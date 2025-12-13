@@ -232,7 +232,9 @@ def assign_inventory_numbers(daily_bookings: List[Dict], property: str):
     assigned, over = [], []
     inv = PROPERTY_INVENTORY.get(property, {"all": []})["all"]
     inv_lookup = {i.strip().lower(): i for i in inv}
-    occupied_rooms = set()
+    
+    # Track which rooms are occupied by which booking_id
+    room_bookings = {}  # room_name -> booking_id
     
     sorted_bookings = sorted(daily_bookings, key=lambda x: (x.get("check_in", ""), x.get("booking_id", "")))
 
@@ -248,25 +250,30 @@ def assign_inventory_numbers(daily_bookings: List[Dict], property: str):
         assigned_rooms = []
         is_overbooking = False
 
+        # First pass: validate all rooms before assigning any
         for r in requested:
             key = r.lower()
             if key not in inv_lookup:
-                over.append(b)
                 is_overbooking = True
                 break
             room_name = inv_lookup[key]
-            if room_name in occupied_rooms:
-                over.append(b)
+            
+            # Check if room is already occupied by a DIFFERENT booking
+            if room_name in room_bookings and room_bookings[room_name] != booking_id:
                 is_overbooking = True
                 break
             assigned_rooms.append(room_name)
 
+        # If any room conflict found, mark entire booking as overbooking
         if is_overbooking or not assigned_rooms:
+            over.append(b)
             continue
 
+        # Only mark rooms as occupied after validation passes
         for room in assigned_rooms:
-            occupied_rooms.add(room)
+            room_bookings[room] = booking_id
 
+        # Calculate per-night charges and distribute pax across rooms
         days = max(b.get("days", 1), 1)
         receivable = b.get("receivable", 0.0)
         num_rooms = len(assigned_rooms)
@@ -285,6 +292,7 @@ def assign_inventory_numbers(daily_bookings: List[Dict], property: str):
             assigned.append(nb)
 
     return assigned, over
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Build Table – Always populate hidden & editable fields
 # ═══════════════════════════════════════════════════════════════════════════
@@ -489,14 +497,18 @@ def show_daily_status():
                         "Accounts Status": st.column_config.SelectboxColumn("Accounts Status", options=["Pending", "Completed"], disabled=not is_accounts_team),
                     }
 
+                    # Create unique key for this property-day combination
+                    unique_key = f"{prop.replace(' ', '_')}_{day.strftime('%Y%m%d')}"
+
                     if is_accounts_team:
-                        with st.form(key=f"form_{prop}_{day}"):
+                        with st.form(key=f"form_{unique_key}"):
                             edited = st.data_editor(
                                 display_df,
                                 column_config=col_config,
                                 hide_index=True,
                                 use_container_width=True,
-                                num_rows="fixed"
+                                num_rows="fixed",
+                                key=f"editor_{unique_key}"
                             )
                             submitted = st.form_submit_button("💾 Save Changes")
 
@@ -517,14 +529,14 @@ def show_daily_status():
                                         continue
 
                                     # Use a unique key that includes row index to handle multi-room bookings
-                                    unique_key = f"{bid}_{i}"
+                                    update_key = f"{bid}_{i}"
                                     
                                     # Get the values, converting empty strings to None for optional fields
                                     advance_remarks = str(er.get("Advance Remarks", "") or "").strip()
                                     balance_remarks = str(er.get("Balance Remarks", "") or "").strip()
                                     accounts_status = str(er.get("Accounts Status", "Pending")).strip()
                                     
-                                    updates[unique_key] = {
+                                    updates[update_key] = {
                                         "advance_remarks": advance_remarks if advance_remarks else None,
                                         "balance_remarks": balance_remarks if balance_remarks else None,
                                         "accounts_status": accounts_status,
@@ -537,7 +549,7 @@ def show_daily_status():
                                 error_details = []
                                 processed_bookings = set()  # Track which bookings we've updated
 
-                                for unique_key, data in updates.items():
+                                for update_key, data in updates.items():
                                     bid = data["booking_id"]
                                     
                                     # Skip if we've already processed this booking
@@ -585,7 +597,15 @@ def show_daily_status():
                                         for msg in error_details:
                                             st.code(msg)
                     else:
-                        st.data_editor(display_df, column_config=col_config, hide_index=True, use_container_width=True, num_rows="fixed")
+                        st.data_editor(
+                            display_df, 
+                            column_config=col_config, 
+                            hide_index=True, 
+                            use_container_width=True, 
+                            num_rows="fixed",
+                            disabled=True,
+                            key=f"viewer_{unique_key}"
+                        )
 
                     # Extract stats and accumulate MTD
                     stats = extract_stats_from_table(display_df, mob_types)
