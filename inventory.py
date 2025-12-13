@@ -292,7 +292,6 @@ def assign_inventory_numbers(daily_bookings: List[Dict], property: str):
             assigned.append(nb)
 
     return assigned, over
-
 # ═══════════════════════════════════════════════════════════════════════════
 # Build Table – Always populate hidden & editable fields
 # ═══════════════════════════════════════════════════════════════════════════
