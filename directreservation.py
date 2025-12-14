@@ -219,9 +219,11 @@ def safe_float(value, default=0.0):
         return default
 
 def load_reservations_from_supabase():
-    """Load reservations from Supabase, handling potential None values."""
+    """Load ALL reservations from Supabase, handling potential None values."""
     try:
-        response = supabase.table("reservations").select("*").execute()
+        # Fetch ALL records with no limit
+        response = supabase.table("reservations").select("*").order("booking_id", desc=True).execute()
+        
         reservations = []
         for record in response.data:
             reservation = {
@@ -258,6 +260,8 @@ def load_reservations_from_supabase():
                 "Payment Status": record.get("payment_status", "Not Paid")
             }
             reservations.append(reservation)
+        
+        print(f"✅ Loaded {len(reservations)} reservations from Supabase")
         return reservations
     except Exception as e:
         st.error(f"Error loading reservations: {e}")
@@ -726,21 +730,65 @@ def show_reservations():
         filtered_df[["Booking ID", "Guest Name", "Mobile No", "Enquiry Date", "Room No", "MOB", "Check In", "Check Out", "Booking Status", "Payment Status", "Remarks"]],
         use_container_width=True
     )
-
 def show_edit_reservations():
-    """Display reservations for editing with filtering options."""
+    """Display reservations for editing with filtering options and direct booking ID search."""
     try:
         st.header("✏️ Edit Reservations")
-        if st.button("Refresh Data"):
-            st.session_state.reservations = load_reservations_from_supabase()
-            st.rerun()
+        col_refresh1, col_refresh2 = st.columns([1, 4])
+        with col_refresh1:
+            if st.button("🔄 Refresh Data", use_container_width=True):
+                st.session_state.reservations = load_reservations_from_supabase()
+                st.success(f"✅ Loaded {len(st.session_state.reservations)} reservations")
+                st.rerun()
+        
         if not st.session_state.reservations:
             st.info("No reservations available to edit.")
             return
 
         df = pd.DataFrame(st.session_state.reservations)
+                 
+        # Add direct booking ID search at the top
+        st.subheader("Quick Search")
+        col_search1, col_search2 = st.columns([3, 1])
+        with col_search1:
+            direct_booking_id = st.text_input(
+                "Search by Booking ID", 
+                placeholder="Enter Booking ID (e.g., TIE20251214001)",
+                key="direct_booking_search",
+                help="Enter exact Booking ID to directly edit a reservation"
+            )
+        with col_search2:
+            search_button = st.button("🔍 Search", use_container_width=True)
         
-        st.subheader("Filters")
+        # If direct search is performed
+        if search_button and direct_booking_id:
+            # Force refresh from database before searching
+            st.session_state.reservations = load_reservations_from_supabase()
+            df = pd.DataFrame(st.session_state.reservations)
+            
+            # Debug: Show what we're searching for
+            st.info(f"🔍 Searching for: '{direct_booking_id}' in {len(df)} total reservations")
+            
+            matching_reservation = df[df["Booking ID"].str.strip() == direct_booking_id.strip()]
+            
+            if not matching_reservation.empty:
+                edit_index = matching_reservation.index[0]
+                st.session_state.edit_mode = True
+                st.session_state.edit_index = edit_index
+                st.success(f"✅ Found: {direct_booking_id}")
+                show_edit_form(edit_index)
+                return
+            else:
+                st.error(f"❌ Booking ID '{direct_booking_id}' not found in database.")
+                # Show similar booking IDs for debugging
+                all_booking_ids = df["Booking ID"].tolist()
+                similar = [bid for bid in all_booking_ids if direct_booking_id[:10] in bid]
+                if similar:
+                    st.warning(f"💡 Similar booking IDs found: {', '.join(similar[:5])}")
+                return
+        
+        st.divider()
+        st.subheader("Browse with Filters")
         col1, col2, col3, col4, col5, col6 = st.columns(6)
         with col1:
             filter_status = st.selectbox("Filter by Status", ["All", "Confirmed", "Pending", "Cancelled", "Completed", "No Show"], key="edit_filter_status")
@@ -778,17 +826,17 @@ def show_edit_reservations():
             use_container_width=True
         )
 
-        # Select reservation to edit
+        # Select reservation to edit from filtered results
         booking_id = st.selectbox("Select Booking ID to Edit", filtered_df["Booking ID"].tolist(), key="edit_booking_id")
         if booking_id:
-            edit_index = filtered_df[filtered_df["Booking ID"] == booking_id].index[0]
+            edit_index = df[df["Booking ID"] == booking_id].index[0]  # Use original df to get correct index
             st.session_state.edit_mode = True
             st.session_state.edit_index = edit_index
             show_edit_form(edit_index)
 
     except Exception as e:
         st.error(f"Error rendering edit reservations: {e}")
-
+        
 def show_edit_form(edit_index):
     """Display form for editing an existing reservation with dynamic room assignments."""
     try:
