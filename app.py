@@ -20,6 +20,7 @@ import pandas as pd
 import json
 from log import show_log_report, log_activity
 from users import validate_user, create_user, update_user, delete_user, load_users
+from accounts_report import show_accounts_report
 # Try to import target achievement module
 try:
     from target_achievement_report import show_target_achievement_report
@@ -36,14 +37,20 @@ st.set_page_config(
 )
 # Display logo in top-left corner
 st.image("https://github.com/TIEReservation/TIEReservation-System/raw/main/TIE_Logo_Icon.png", width=100)
-# Initialize Supabase client with environment variables
-try:
-    os.environ["SUPABASE_URL"] = "https://oxbrezracnmazucnnqox.supabase.co"
-    os.environ["SUPABASE_KEY"] = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im94YnJlenJhY25tYXp1Y25ucW94Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM3NjUxMTgsImV4cCI6MjA2OTM0MTExOH0.nqBK2ZxntesLY9qYClpoFPVnXOW10KrzF-UI_DKjbKo"
-    supabase: Client = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_KEY"])
-except Exception as e:
-    st.error(f"Failed to initialize Supabase client: {e}")
-    st.stop()
+
+# ✅ OPTIMIZED: Initialize Supabase client with caching
+@st.cache_resource
+def get_supabase_client():
+    """Create a single Supabase client for the entire session."""
+    try:
+        os.environ["SUPABASE_URL"] = "https://oxbrezracnmazucnnqox.supabase.co"
+        os.environ["SUPABASE_KEY"] = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im94YnJlenJhY25tYXp1Y25ucW94Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM3NjUxMTgsImV4cCI6MjA2OTM0MTExOH0.nqBK2ZxntesLY9qYClpoFPVnXOW10KrzF-UI_DKjbKo"
+        return create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_KEY"])
+    except Exception as e:
+        st.error(f"Failed to initialize Supabase client: {e}")
+        st.stop()
+
+supabase: Client = get_supabase_client()
 def check_authentication():
     if 'authenticated' not in st.session_state:
         st.session_state.authenticated = False
@@ -194,7 +201,7 @@ def show_user_management():
         ]
         new_properties = st.multiselect("Visible Properties", all_properties, default=all_properties, key="create_properties")
        
-        all_screens = ["Inventory Dashboard", "Direct Reservations", "View Reservations", "Edit Direct Reservation", "Online Reservations", "Edit Online Reservations", "Daily Status", "Daily Management Status", "Analytics", "Monthly Consolidation", "Summary Report", "Target Achievement", "User Management", "Log Report"]
+        all_screens = ["Inventory Dashboard", "Accounts Report", "Direct Reservations", "View Reservations", "Edit Direct Reservation", "Online Reservations", "Edit Online Reservations", "Daily Status", "Daily Management Status", "Analytics", "Monthly Consolidation", "Summary Report", "Target Achievement", "User Management", "Log Report"]
        
         # Default screens based on role
         if new_role == "Admin":
@@ -203,6 +210,8 @@ def show_user_management():
             default_screens = [s for s in all_screens if s not in ["User Management", "Log Report"]]
         elif new_role == "ReservationHead":
             default_screens = ["Direct Reservations", "View Reservations", "Edit Direct Reservation", "Online Reservations", "Edit Online Reservations", "Daily Status", "Monthly Consolidation", "Summary Report", "Target Achievement"]
+        elif new_role == "Accounts Team":
+            default_screens = ["Daily Status", "Monthly Consolidation", "Accounts Report"]
         else:
             default_screens = [s for s in all_screens if s not in ["Daily Management Status", "Analytics", "Inventory Dashboard", "Summary Report", "Target Achievement", "User Management", "Log Report"]]
        
@@ -304,7 +313,7 @@ def show_user_management():
                             default_properties = all_properties
                         mod_properties = st.multiselect("Visible Properties", all_properties, default=default_properties, key="modify_properties")
                        
-                        all_screens = ["Inventory Dashboard", "Direct Reservations", "View Reservations", "Edit Direct Reservation", "Online Reservations", "Edit Online Reservations", "Daily Status", "Daily Management Status", "Analytics", "Monthly Consolidation", "Summary Report", "Target Achievement", "User Management", "Log Report"]
+                        all_screens = ["Inventory Dashboard", "Accounts Report", "Direct Reservations", "View Reservations", "Edit Direct Reservation", "Online Reservations", "Edit Online Reservations", "Daily Status", "Daily Management Status", "Analytics", "Monthly Consolidation", "Summary Report", "Target Achievement", "User Management", "Log Report"]
                         # Filter out any screens that don't exist in all_screens to avoid the error
                         valid_current_screens = [screen for screen in current_screens if screen in all_screens]
                         mod_screens = st.multiselect("Visible Screens", all_screens, default=valid_current_screens, key="modify_screens")
@@ -439,6 +448,9 @@ def main():
     elif page == "Target Achievement" and target_achievement_available:
         show_target_achievement_report()
         log_activity(supabase, st.session_state.username, "Accessed Target Achievement")
+    elif page == "Accounts Report":
+        show_accounts_report()
+        log_activity(supabase, st.session_state.username, "Accessed Accounts Report")
     # === Footer: User Info & Logout ===
     if st.session_state.authenticated:
         st.sidebar.write(f"Logged in as: **{st.session_state.username}**")
