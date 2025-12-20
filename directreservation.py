@@ -219,46 +219,61 @@ def safe_float(value, default=0.0):
         return default
 
 def load_reservations_from_supabase():
-    """Load ALL reservations from Supabase, handling potential None values."""
+    def load_reservations_from_supabase():
+    """Load ALL reservations from Supabase with pagination, handling potential None values."""
     try:
-        response = supabase.table("reservations").select("*").order("booking_id", desc=True).execute()
-        
         reservations = []
-        for record in response.data:
-            reservation = {
-                "Booking ID": record["booking_id"],
-                "Property Name": record["property_name"] or "",
-                "Room No": record["room_no"] or "",
-                "Guest Name": record["guest_name"] or "",
-                "Mobile No": record["mobile_no"] or "",
-                "No of Adults": safe_int(record["no_of_adults"]),
-                "No of Children": safe_int(record["no_of_children"]),
-                "No of Infants": safe_int(record["no_of_infants"]),
-                "Total Pax": safe_int(record["total_pax"]),
-                "Check In": datetime.strptime(record["check_in"], "%Y-%m-%d").date() if record["check_in"] else None,
-                "Check Out": datetime.strptime(record["check_out"], "%Y-%m-%d").date() if record["check_out"] else None,
-                "No of Days": safe_int(record["no_of_days"]),
-                "Tariff": safe_float(record["tariff"]),
-                "Total Tariff": safe_float(record["total_tariff"]),
-                "Advance Amount": safe_float(record["advance_amount"]),
-                "Balance Amount": safe_float(record["balance_amount"]),
-                "Advance MOP": record["advance_mop"] or "",
-                "Balance MOP": record["balance_mop"] or "",
-                "MOB": record["mob"] or "",
-                "Online Source": record["online_source"] or "",
-                "Invoice No": record["invoice_no"] or "",
-                "Enquiry Date": datetime.strptime(record["enquiry_date"], "%Y-%m-%d").date() if record["enquiry_date"] else None,
-                "Booking Date": datetime.strptime(record["booking_date"], "%Y-%m-%d").date() if record["booking_date"] else None,
-                "Room Type": record["room_type"] or "",
-                "Breakfast": record["breakfast"] or "",
-                "Booking Status": record["plan_status"] or "",
-                "Submitted By": record.get("submitted_by", ""),
-                "Modified By": record.get("modified_by", ""),
-                "Modified Comments": record.get("modified_comments", ""),
-                "Remarks": record.get("remarks", ""),
-                "Payment Status": record.get("payment_status", "Not Paid")
-            }
-            reservations.append(reservation)
+        page_size = 1000
+        start = 0
+        
+        while True:
+            response = supabase.table("reservations").select("*").order("booking_id", desc=True).range(start, start + page_size - 1).execute()
+            
+            if not response.data:
+                break
+            
+            for record in response.data:
+                reservation = {
+                    "Booking ID": record["booking_id"],
+                    "Property Name": record["property_name"] or "",
+                    "Room No": record["room_no"] or "",
+                    "Guest Name": record["guest_name"] or "",
+                    "Mobile No": record["mobile_no"] or "",
+                    "No of Adults": safe_int(record["no_of_adults"]),
+                    "No of Children": safe_int(record["no_of_children"]),
+                    "No of Infants": safe_int(record["no_of_infants"]),
+                    "Total Pax": safe_int(record["total_pax"]),
+                    "Check In": datetime.strptime(record["check_in"], "%Y-%m-%d").date() if record["check_in"] else None,
+                    "Check Out": datetime.strptime(record["check_out"], "%Y-%m-%d").date() if record["check_out"] else None,
+                    "No of Days": safe_int(record["no_of_days"]),
+                    "Tariff": safe_float(record["tariff"]),
+                    "Total Tariff": safe_float(record["total_tariff"]),
+                    "Advance Amount": safe_float(record["advance_amount"]),
+                    "Balance Amount": safe_float(record["balance_amount"]),
+                    "Advance MOP": record["advance_mop"] or "",
+                    "Balance MOP": record["balance_mop"] or "",
+                    "MOB": record["mob"] or "",
+                    "Online Source": record["online_source"] or "",
+                    "Invoice No": record["invoice_no"] or "",
+                    "Enquiry Date": datetime.strptime(record["enquiry_date"], "%Y-%m-%d").date() if record["enquiry_date"] else None,
+                    "Booking Date": datetime.strptime(record["booking_date"], "%Y-%m-%d").date() if record["booking_date"] else None,
+                    "Room Type": record["room_type"] or "",
+                    "Breakfast": record["breakfast"] or "",
+                    "Booking Status": record["plan_status"] or "",
+                    "Submitted By": record.get("submitted_by", ""),
+                    "Modified By": record.get("modified_by", ""),
+                    "Modified Comments": record.get("modified_comments", ""),
+                    "Remarks": record.get("remarks", ""),
+                    "Payment Status": record.get("payment_status", "Not Paid")
+                }
+                reservations.append(reservation)
+            
+            # If we got less than page_size records, we've reached the end
+            if len(response.data) < page_size:
+                break
+            
+            # Move to next page
+            start += page_size
         
         print(f"✅ Loaded {len(reservations)} reservations from Supabase")
         return reservations
@@ -515,7 +530,7 @@ def show_new_reservation_form():
         with row5_col3:
             advance_amount = st.number_input("Advance Amount", min_value=0.0, step=100.0, key=f"{form_key}_advance")
         with row5_col4:
-            advance_mop_options = [" ", "Cash", "Card", "UPI", "Bank Transfer", "ClearTrip", "TIE Management", "Booking.com", "NOT PAID", "Other"]
+            advance_mop_options = ["Cash", "Card", "UPI", "Bank Transfer", "ClearTrip", "TIE Management", "Booking.com", "Pending", "Other"]
             advance_mop = st.selectbox("Advance MOP", advance_mop_options, key=f"{form_key}_advmop")
             if advance_mop == "Other":
                 custom_advance_mop = st.text_input("Custom Advance MOP", key=f"{form_key}_custom_advmop")
@@ -527,7 +542,7 @@ def show_new_reservation_form():
             balance_amount = max(0, total_tariff - safe_float(advance_amount))
             st.text_input("Balance Amount", value=f"₹{balance_amount:.2f}", disabled=True, key=f"{form_key}_balance_amount", help="Total Tariff - Advance Amount")
         with row6_col2:
-            balance_mop_options = [" ", "NOT PAID", "Cash", "Card", "UPI", "Bank Transfer", "Other"]
+            balance_mop_options = ["Pending", "Cash", "Card", "UPI", "Bank Transfer", "Other"]
             balance_mop = st.selectbox("Balance MOP", balance_mop_options, key=f"{form_key}_balmop")
             if balance_mop == "Other":
                 custom_balance_mop = st.text_input("Custom Balance MOP", key=f"{form_key}_custom_balmop")
