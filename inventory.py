@@ -1,4 +1,4 @@
-# inventory.py – FIXED VERSION with single editable table
+# inventory.py – FIXED VERSION with all functionalities working
 import streamlit as st
 from supabase import create_client, Client
 from datetime import date
@@ -84,9 +84,9 @@ PROPERTY_INVENTORY = {
     "Happymates Forest Retreat": {"all": ["101","102","Day Use 1","Day Use 2","No Show"],"three_bedroom":[]}  
 }
 
-# ╔══════════════════════════════════════════════════════════════════════════╗
+# ══════════════════════════════════════════════════════════════════════════════
 # Helpers
-# ╚══════════════════════════════════════════════════════════════════════════╝
+# ══════════════════════════════════════════════════════════════════════════════
 def normalize_property(name: str) -> str:
     return property_mapping.get(name.strip(), name.strip())
 
@@ -105,9 +105,9 @@ def safe_float(v: Any, default: float = 0) -> float:
     except:
         return default
 
-# ╔══════════════════════════════════════════════════════════════════════════╗
+# ══════════════════════════════════════════════════════════════════════════════
 # Load Properties & Bookings
-# ╚══════════════════════════════════════════════════════════════════════════╝
+# ══════════════════════════════════════════════════════════════════════════════
 @st.cache_data(ttl=3600)
 def load_properties() -> List[str]:
     try:
@@ -127,18 +127,18 @@ def load_properties() -> List[str]:
 
 @st.cache_data(ttl=600)  
 def load_combined_bookings(property: str, start_date: date, end_date: date) -> List[Dict]:
-    """Load bookings with optimized date filtering - ONLY loads data for selected date range."""
+    """Load bookings with correct date filtering."""
     prop = normalize_property(property)
     query_props = [prop] + reverse_mapping.get(prop, [])
     combined: List[Dict] = []
 
     try:
-        # ✅ OPTIMIZED: Filter dates on database side BEFORE loading
+        # ✅ FIXED: Correct date filtering for overlapping bookings
         q = supabase.table("reservations")\
             .select("*")\
             .in_("property_name", query_props)\
-            .gte("check_in", str(start_date))\
-            .lte("check_out", str(end_date))\
+            .lte("check_in", str(end_date))\
+            .gte("check_out", str(start_date))\
             .in_("plan_status", ["Confirmed", "Completed"])\
             .in_("payment_status", ["Partially Paid", "Fully Paid"])\
             .execute()
@@ -150,12 +150,11 @@ def load_combined_bookings(property: str, start_date: date, end_date: date) -> L
         logging.error(f"Direct query error: {e}")
 
     try:
-        # ✅ OPTIMIZED: Filter dates on database side BEFORE loading
         q = supabase.table("online_reservations")\
             .select("*")\
             .in_("property", query_props)\
-            .gte("check_in", str(start_date))\
-            .lte("check_out", str(end_date))\
+            .lte("check_in", str(end_date))\
+            .gte("check_out", str(start_date))\
             .in_("booking_status", ["Confirmed", "Completed"])\
             .in_("payment_status", ["Partially Paid", "Fully Paid"])\
             .execute()
@@ -168,9 +167,9 @@ def load_combined_bookings(property: str, start_date: date, end_date: date) -> L
 
     return combined
 
-# ╔══════════════════════════════════════════════════════════════════════════╗
-# Normalize booking – Correct identifier for both tables
-# ╚══════════════════════════════════════════════════════════════════════════╝
+# ══════════════════════════════════════════════════════════════════════════════
+# Normalize booking
+# ══════════════════════════════════════════════════════════════════════════════
 def normalize_booking(row: Dict, is_online: bool) -> Optional[Dict]:
     try:
         bid = sanitize_string(row.get("booking_id") or row.get("id"))
@@ -241,9 +240,9 @@ def normalize_booking(row: Dict, is_online: bool) -> Optional[Dict]:
         logging.warning(f"normalize failed: {e}")
         return None
 
-# ╔══════════════════════════════════════════════════════════════════════════╗
+# ══════════════════════════════════════════════════════════════════════════════
 # Filter & Assign
-# ╚══════════════════════════════════════════════════════════════════════════╝
+# ══════════════════════════════════════════════════════════════════════════════
 def filter_bookings_for_day(bookings: List[Dict], day: date) -> List[Dict]:
     return [b.copy() for b in bookings if date.fromisoformat(b["check_in"]) <= day < date.fromisoformat(b["check_out"])]
 
@@ -252,9 +251,7 @@ def assign_inventory_numbers(daily_bookings: List[Dict], property: str):
     inv = PROPERTY_INVENTORY.get(property, {"all": []})["all"]
     inv_lookup = {i.strip().lower(): i for i in inv}
     
-    # Track which rooms are occupied by which booking_id
-    room_bookings = {}  # room_name -> booking_id
-    
+    room_bookings = {}
     sorted_bookings = sorted(daily_bookings, key=lambda x: (x.get("check_in", ""), x.get("booking_id", "")))
 
     for b in sorted_bookings:
@@ -269,7 +266,6 @@ def assign_inventory_numbers(daily_bookings: List[Dict], property: str):
         assigned_rooms = []
         is_overbooking = False
 
-        # First pass: validate all rooms before assigning any
         for r in requested:
             key = r.lower()
             if key not in inv_lookup:
@@ -277,22 +273,18 @@ def assign_inventory_numbers(daily_bookings: List[Dict], property: str):
                 break
             room_name = inv_lookup[key]
             
-            # Check if room is already occupied by a DIFFERENT booking
             if room_name in room_bookings and room_bookings[room_name] != booking_id:
                 is_overbooking = True
                 break
             assigned_rooms.append(room_name)
 
-        # If any room conflict found, mark entire booking as overbooking
         if is_overbooking or not assigned_rooms:
             over.append(b)
             continue
 
-        # Only mark rooms as occupied after validation passes
         for room in assigned_rooms:
             room_bookings[room] = booking_id
 
-        # Calculate per-night charges and distribute pax across rooms
         days = max(b.get("days", 1), 1)
         receivable = b.get("receivable", 0.0)
         num_rooms = len(assigned_rooms)
@@ -312,9 +304,9 @@ def assign_inventory_numbers(daily_bookings: List[Dict], property: str):
 
     return assigned, over
 
-# ╔══════════════════════════════════════════════════════════════════════════╗
-# Build Table – Always populate hidden & editable fields
-# ╚══════════════════════════════════════════════════════════════════════════╝
+# ══════════════════════════════════════════════════════════════════════════════
+# Build Table
+# ══════════════════════════════════════════════════════════════════════════════
 def create_inventory_table(assigned: List[Dict], over: List[Dict], prop: str, target_date: date):
     visible_cols = ["Inventory No","Room No","Booking ID","Guest Name","Mobile No","Total Pax",
                     "Check In","Check Out","Days","MOB","Room Charges","GST","TAX","Total","Commission",
@@ -386,9 +378,9 @@ def create_inventory_table(assigned: List[Dict], over: List[Dict], prop: str, ta
     full_df = df
     return display_df, full_df
 
-# ╔══════════════════════════════════════════════════════════════════════════╗
+# ══════════════════════════════════════════════════════════════════════════════
 # Extract Stats
-# ╚══════════════════════════════════════════════════════════════════════════╝
+# ══════════════════════════════════════════════════════════════════════════════
 def extract_stats_from_table(df: pd.DataFrame, mob_types: List[str]) -> Dict:
     occupied = df[df["Booking ID"].fillna("").str.strip() != ""].copy()
 
@@ -459,9 +451,9 @@ def extract_stats_from_table(df: pd.DataFrame, mob_types: List[str]) -> Dict:
 
     return {"mop": mop_data, "dtd": dtd}
     
-# ╔══════════════════════════════════════════════════════════════════════════╗
+# ══════════════════════════════════════════════════════════════════════════════
 # UI – Dashboard with single editable table
-# ╚══════════════════════════════════════════════════════════════════════════╝
+# ══════════════════════════════════════════════════════════════════════════════
 def show_daily_status():
     st.title("Daily Status Dashboard")
     if st.button("Refresh Data"):
@@ -533,24 +525,13 @@ def show_daily_status():
                         "Accounts Status": st.column_config.SelectboxColumn("Accounts Status", options=["Pending", "Completed"], disabled=not is_accounts_team),
                     }
 
-                    # Style function for highlighting columns
-                    def highlight_financial_cols(s):
-                        # Highlight Total, Advance, Balance columns
-                        styles = [''] * len(s)
-                        if s.name in ['Total', 'Advance', 'Balance']:
-                            styles = ['background-color: #FFE4E1'] * len(s)
-                        return styles
-
-                    # Create unique key for this property-day combination
+                    # Create unique key
                     unique_key = f"{prop.replace(' ', '_')}_{day.strftime('%Y%m%d')}"
 
-                    # Show single table with highlighting and form for save button
+                    # Show single table with form
                     with st.form(key=f"form_{unique_key}"):
-                        # Apply styling to dataframe
-                        styled_df = display_df.style.apply(highlight_financial_cols, axis=0)
-                        
                         edited = st.data_editor(
-                            styled_df,
+                            display_df,
                             column_config=col_config,
                             hide_index=True,
                             use_container_width=True,
@@ -559,7 +540,6 @@ def show_daily_status():
                             height=400
                         )
                         
-                        # Only show save button for Accounts Team
                         if is_accounts_team:
                             submitted = st.form_submit_button("💾 Save Changes")
 
@@ -579,10 +559,8 @@ def show_daily_status():
                                     if not db_id or not btype:
                                         continue
 
-                                    # Use a unique key that includes row index to handle multi-room bookings
                                     update_key = f"{bid}_{i}"
                                     
-                                    # Get the values, converting empty strings to None for optional fields
                                     advance_remarks = str(er.get("Advance Remarks", "") or "").strip()
                                     balance_remarks = str(er.get("Balance Remarks", "") or "").strip()
                                     accounts_status = str(er.get("Accounts Status", "Pending")).strip()
@@ -598,12 +576,11 @@ def show_daily_status():
 
                                 success = error = 0
                                 error_details = []
-                                processed_bookings = set()  # Track which bookings we've updated
+                                processed_bookings = set()
 
                                 for update_key, data in updates.items():
                                     bid = data["booking_id"]
                                     
-                                    # Skip if we've already processed this booking
                                     if bid in processed_bookings:
                                         continue
                                     
@@ -615,7 +592,6 @@ def show_daily_status():
                                         "accounts_status": data["accounts_status"],
                                     }
                                     
-                                    # Remove None values to avoid overwriting with NULL
                                     update_data = {k: v for k, v in update_data.items() if v is not None}
                                     
                                     logging.info(f"Saving {data['type']} booking {bid} | Key: {data['db_id'] if data['type']=='online' else bid} | Data: {update_data}")
@@ -648,14 +624,14 @@ def show_daily_status():
                                         for msg in error_details:
                                             st.code(msg)
                         else:
-                            # For non-accounts team, show a placeholder button (disabled)
                             st.form_submit_button("💾 Save Changes (Accounts Team Only)", disabled=True)
 
-                    # Extract stats and accumulate MTD
+                    # ✅ FIXED: Extract stats and display tables
                     stats = extract_stats_from_table(display_df, mob_types)
                     dtd = stats["dtd"]
                     mop_data = stats["mop"]
 
+                    # Accumulate MTD
                     for m in mob_types:
                         mtd[m]["rooms"] += dtd[m]["rooms"]
                         mtd[m]["value"] += dtd[m]["value"]
