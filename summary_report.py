@@ -1,5 +1,5 @@
 # summary_report.py - FINAL FULL VERSION
-# Red zeros + Light green weekends + All original logic 100% working
+# Red zeros + Light green weekends + Scrollable tables
 
 import streamlit as st
 from datetime import date
@@ -80,22 +80,23 @@ def load_properties() -> List[str]:
         st.error(f"Error loading properties: {e}")
         return []
 
+@st.cache_data(ttl=1800)
 def load_combined_bookings(prop: str, start: date, end: date) -> List[Dict]:
     normalized_prop = normalize_property_name(prop)
     query_props = [normalized_prop] + reverse_mapping.get(normalized_prop, [])
     try:
         direct = (supabase.table("reservations").select("*")
                   .in_("property_name", query_props)
+                  .gte("check_in", str(start))
                   .lte("check_in", str(end))
-                  .gte("check_out", str(start))
                   .in_("plan_status", ["Confirmed", "Completed"])
                   .in_("payment_status", ["Partially Paid", "Fully Paid"])
                   .execute().data or [])
 
         online = (supabase.table("online_reservations").select("*")
                   .in_("property", query_props)
+                  .gte("check_in", str(start))
                   .lte("check_in", str(end))
-                  .gte("check_out", str(start))
                   .in_("booking_status", ["Confirmed", "Completed"])
                   .in_("payment_status", ["Partially Paid", "Fully Paid"])
                   .execute().data or [])
@@ -260,8 +261,7 @@ def build_report(props: List[str], dates: List[date], bookings: Dict[str, List[D
     rows.append(total_row)
     return pd.DataFrame(rows)
 
-# -------------------------- Styling: Red Zeros + Green Weekends --------------------------
-# -------------------------- Styling: Royal Blue Headers + Red Zeros + Green Weekends --------------------------
+# -------------------------- Styling with Horizontal Scroll --------------------------
 def style_dataframe_with_highlights(df: pd.DataFrame) -> str:
     def is_zero(val):
         if pd.isna(val):
@@ -272,19 +272,16 @@ def style_dataframe_with_highlights(df: pd.DataFrame) -> str:
             return False
 
     def highlight_row(row):
-        # Default style for all cells in the row
         styles = [""] * len(row)
         
-        # Light green background for weekends
         if row["Date"] != "Total":
             try:
                 d = pd.to_datetime(row["Date"]).date()
-                if d.weekday() >= 5:  # Saturday or Sunday
+                if d.weekday() >= 5:
                     styles = ["background-color: #d4edda"] * len(row)
             except:
                 pass
 
-        # Overlay red bold text for zero values (except Date column)
         for i, (col, val) in enumerate(row.items()):
             if col != "Date" and is_zero(val):
                 current = styles[i]
@@ -295,33 +292,37 @@ def style_dataframe_with_highlights(df: pd.DataFrame) -> str:
 
     numeric_cols = [c for c in df.columns if c != "Date"]
 
-    return (df.style
+    styled_html = (df.style
             .apply(highlight_row, axis=1)
             .format({c: "{:,.0f}" for c in numeric_cols})
             .set_table_styles([
-                # === ROYAL BLUE HEADER with WHITE TEXT ===
                 {"selector": "th", 
                  "props": [
-                     ("background-color", "#4169E1"),   # Royal Blue
+                     ("background-color", "#4169E1"),
                      ("color", "white"),
                      ("font-weight", "bold"),
                      ("text-align", "center"),
-                     ("padding", "10px")
+                     ("padding", "10px"),
+                     ("position", "sticky"),
+                     ("top", "0"),
+                     ("z-index", "10")
                  ]},
-                
-                # Data cells
                 {"selector": "td", 
-                 "props": "text-align: right; padding: 8px;"},
-                
-                # First column (Date) - left aligned & bold
+                 "props": "text-align: right; padding: 8px; white-space: nowrap;"},
                 {"selector": "td:first-child", 
-                 "props": "text-align: left; font-weight: bold;"},
-                
-                # Hover effect on rows
-                {"selector": "tr:hover", 
+                 "props": "text-align: left; font-weight: bold; position: sticky; left: 0; background-color: white; z-index: 5;"},
+                {"selector": "th:first-child",
+                 "props": "position: sticky; left: 0; z-index: 15; background-color: #4169E1;"},
+                {"selector": "tr:hover td", 
                  "props": "background-color: #f5f5f5;"},
             ])
-            .to_html())
+            .to_html(escape=False))
+    
+    # Wrap in scrollable div with both horizontal and vertical scroll
+    scrollable_html = '<div style="overflow-x: auto; overflow-y: auto; max-height: 600px; max-width: 100%; border: 1px solid #ddd; border-radius: 5px;">' + styled_html + '</div>'
+    
+    return scrollable_html
+
 # -------------------------- UI --------------------------
 def show_summary_report():
     st.set_page_config(page_title="TIE Summary Report", layout="wide")
