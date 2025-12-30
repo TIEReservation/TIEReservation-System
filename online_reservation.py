@@ -153,7 +153,7 @@ def process_and_sync_excel(uploaded_file):
             elif total_payment_made > 0:
                 payment_status = "Partially Paid"
             else:
-                payment_status = "Not Paid"
+                payment_status = "NOT PAID"
             remarks = truncate_string(row.get("special_requests", ""), 500)  # Longer limit for remarks
             submitted_by = ""  # Editable
             modified_by = ""  # Editable
@@ -223,13 +223,25 @@ def show_online_reservations():
                 # Reload to reflect changes
                 st.session_state.online_reservations = load_online_reservations_from_supabase()
 
-    # View section
+     # View section
     st.subheader("View Online Reservations")
     if not st.session_state.online_reservations:
         st.info("No online reservations available.")
         return
 
     df = pd.DataFrame(st.session_state.online_reservations)
+    
+    # ✅ OPTIMIZED: Add pagination controls
+    col_page1, col_page2, col_page3 = st.columns([1, 2, 1])
+    with col_page1:
+        page_size = st.selectbox("Records per page", [50, 100, 200, 500], index=1, key="page_size_online")
+    with col_page2:
+        total_records = len(df)
+        total_pages = (total_records + page_size - 1) // page_size
+        page_number = st.number_input("Page", min_value=1, max_value=max(1, total_pages), value=1, step=1, key="page_num_online")
+    with col_page3:
+        st.metric("Total Records", total_records)
+        st.metric("Total Pages", total_pages)
     # Enhanced filters
     st.subheader("Filters")
     col1, col2, col3, col4 = st.columns(4)
@@ -267,9 +279,16 @@ def show_online_reservations():
     if filtered_df.empty:
         st.warning("No reservations match the selected filters.")
     else:
+        # ✅ OPTIMIZED: Apply pagination
+        start_idx = (page_number - 1) * page_size
+        end_idx = start_idx + page_size
+        paginated_df = filtered_df.iloc[start_idx:end_idx]
+        
+        st.info(f"Showing records {start_idx + 1} to {min(end_idx, len(filtered_df))} of {len(filtered_df)}")
+        
         # Display selected columns
         display_columns = [
             "property", "booking_id", "guest_name", "guest_phone", "check_in", "check_out", "room_no", "room_type",
             "booking_status", "payment_status", "booking_amount", "total_payment_made", "balance_due"
         ]
-        st.dataframe(filtered_df[display_columns], use_container_width=True)
+        st.dataframe(paginated_df[display_columns], use_container_width=True, height=600)
