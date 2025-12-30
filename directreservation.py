@@ -529,7 +529,7 @@ def show_new_reservation_form():
         with row5_col3:
             advance_amount = st.number_input("Advance Amount", min_value=0.0, step=100.0, key=f"{form_key}_advance")
         with row5_col4:
-            advance_mop_options = ["Cash", "Card", "UPI", "Bank Transfer", "ClearTrip", "TIE Management", "Booking.com", "Not Paid", "Other"]
+            advance_mop_options = ["Cash", "Card", "UPI", "Airbnb", "Bank Transfer", "ClearTrip", "TIE Management", "Booking.com", "Not Paid", "Other"]
             advance_mop = st.selectbox("Advance MOP", advance_mop_options, key=f"{form_key}_advmop")
             if advance_mop == "Other":
                 custom_advance_mop = st.text_input("Custom Advance MOP", key=f"{form_key}_custom_advmop")
@@ -839,7 +839,7 @@ def show_edit_form(edit_index):
         with row5_col3:
             advance_amount = st.number_input("Advance Amount", min_value=0.0, value=reservation["Advance Amount"], step=100.0, key=f"{form_key}_advance")
         with row5_col4:
-            advance_mop_options = [" ", "Cash", "Card", "UPI", "Bank Transfer", "ClearTrip", "TIE Management", "Booking.com", "Pending", "Other"]
+            advance_mop_options = [" ", "Cash", "Card", "UPI", "Airbnb", "Bank Transfer", "ClearTrip", "TIE Management", "Booking.com", "Pending", "Other"]
             advance_mop_index = advance_mop_options.index(reservation["Advance MOP"]) if reservation["Advance MOP"] in advance_mop_options else len(advance_mop_options) - 1
             advance_mop = st.selectbox("Advance MOP", advance_mop_options, index=advance_mop_index, key=f"{form_key}_advmop")
             if advance_mop == "Other":
