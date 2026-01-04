@@ -1,30 +1,73 @@
-# target_achievement_report.py - Target vs Achievement Analysis
+"""
+nrd_report.py - Night Report Dashboard for TIE Hotels & Resorts (Streamlit Integration)
+
+This module provides a Streamlit interface for generating overall daily reports
+across all TIE Hotels & Resorts properties using the exact same logic as inventory.py
+"""
+
 import streamlit as st
-from datetime import date
-import calendar
+from datetime import date, timedelta
 import pandas as pd
-from supabase import create_client, Client
-from typing import List, Dict
+from typing import Dict, List, Any, Optional
+import logging
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from openpyxl.utils import get_column_letter
 import os
+import io
+import calendar
 
-# -------------------------- Supabase --------------------------
-try:
-    supabase: Client = create_client(
-        st.secrets["supabase"]["url"],
-        st.secrets["supabase"]["key"]
-    )
-except (KeyError, FileNotFoundError):
-    try:
-        supabase: Client = create_client(
-            os.environ["SUPABASE_URL"],
-            os.environ["SUPABASE_KEY"]
-        )
-    except KeyError as e:
-        st.error(f"Missing Supabase configuration: {e}")
-        st.stop()
+# Configure logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# -------------------------- Property Mapping --------------------------
-PROPERTY_MAPPING = {
+# ============================================================================
+# CONFIGURATION (matching inventory.py)
+# ============================================================================
+
+PROPERTY_SHORT_NAMES = {
+    "Le Poshe Beach view": "LPBV",
+    "La Millionaire Resort": "LMR",
+    "Le Poshe Luxury": "LePL",
+    "Le Poshe Suite": "LPS",
+    "La Paradise Residency": "LaPR",
+    "La Paradise Luxury": "LaPL",
+    "La Villa Heritage": "LVH",
+    "Le Pondy Beachside": "LPB",
+    "Le Royce Villa": "LRV",
+    "La Tamara Luxury": "LTL",
+    "La Antilia Luxury": "LAL",
+    "La Tamara Suite": "LTS",
+    "Le Park Resort": "LePR",
+    "Villa Shakti": "VS",
+    "Eden Beach Resort": "EBR",
+    "Le Terra": "LT",
+    "La Coromandel Luxury": "LCL",
+    "Happymates Forest Retreat": "HFR"
+}
+
+# Full inventory from inventory.py
+PROPERTY_INVENTORY = {
+    "Le Poshe Beach view": {"all": ["101","102","201","202","203","204","301","302","303","304","Day Use 1","Day Use 2","No Show"],"three_bedroom":["203","204"]},
+    "La Millionaire Resort": {"all": ["101","102","103","105","201","202","203","204","205","206","207","208","301","302","303","304","305","306","307","308","401","402","Day Use 1","Day Use 2","Day Use 3","Day Use 4","Day Use 5","No Show"],"three_bedroom":["203","204","205"]},
+    "Le Poshe Luxury": {"all": ["101","102","201","202","203","204","205","301","302","303","304","305","401","402","403","404","405","501","Day Use 1","Day Use 2","No Show"],"three_bedroom":["203","204","205"]},
+    "Le Poshe Suite": {"all": ["601","602","603","604","701","702","703","704","801","Day Use 1","Day Use 2","No Show"],"three_bedroom":[]},
+    "La Paradise Residency": {"all": ["101","102","103","201","202","203","301","302","303","304","Day Use 1","Day Use 2","No Show"],"three_bedroom":["203"]},
+    "La Paradise Luxury": {"all": ["101","102","103","201","202","203","Day Use 1","Day Use 2","No Show"],"three_bedroom":["203"]},
+    "La Villa Heritage": {"all": ["101","102","103","201","202","203","301","Day Use 1","Day Use 2","No Show"],"three_bedroom":["203"]},
+    "Le Pondy Beachside": {"all": ["101","102","201","202","Day Use 1","Day Use 2","No Show"],"three_bedroom":[]},
+    "Le Royce Villa": {"all": ["101","102","201","202","Day Use 1","Day Use 2","No Show"],"three_bedroom":[]},
+    "La Tamara Luxury": {"all": ["101","102","103","104","105","106","201","202","203","204","205","206","301","302","303","304","305","306","401","402","403","404","Day Use 1","Day Use 2","No Show"],"three_bedroom":["203","204","205","206"]},
+    "La Antilia Luxury": {"all": ["101","201","202","203","204","301","302","303","304","401","Day Use 1","Day Use 2","No Show"],"three_bedroom":["203","204"]},
+    "La Tamara Suite": {"all": ["101","102","103","104","201","202","203","204","205","206","Day Use 1","Day Use 2","No Show"],"three_bedroom":["203","204","205","206"]},
+    "Le Park Resort": {"all": ["111","222","333","444","555","666","Day Use 1","Day Use 2","No Show"],"three_bedroom":[]},
+    "Villa Shakti": {"all": ["101","102","201","201A","202","203","301","301A","302","303","401","Day Use 1","Day Use 2","No Show"],"three_bedroom":["203"]},
+    "Eden Beach Resort": {"all": ["101","102","103","201","202","Day Use 1","Day Use 2","No Show"],"three_bedroom":[]},
+    "Le Terra": {"all": ["101","102","103","104","105","106","107","Day Use 1","Day Use 2","No Show"],"three_bedroom":[]},
+    "La Coromandel Luxury": {"all": ["101","102","103","201","202","203","204","205","206","301","Day Use 1","Day Use 2","No Show"],"three_bedroom":[]},
+    "Happymates Forest Retreat": {"all": ["101","102","Day Use 1","Day Use 2","No Show"],"three_bedroom":[]}  
+}
+
+property_mapping = {
     "La Millionaire Luxury Resort": "La Millionaire Resort",
     "Le Poshe Beach View": "Le Poshe Beach view",
     "Le Poshe Beach view": "Le Poshe Beach view",
@@ -35,342 +78,765 @@ PROPERTY_MAPPING = {
     "Le Teera": "Le Terra"
 }
 
-reverse_mapping = {c: [] for c in set(PROPERTY_MAPPING.values())}
-for v, c in PROPERTY_MAPPING.items():
+reverse_mapping = {c: [] for c in set(property_mapping.values())}
+for v, c in property_mapping.items():
     reverse_mapping[c].append(v)
 
-def normalize_property_name(prop_name: str) -> str:
-    return PROPERTY_MAPPING.get(prop_name, prop_name) if prop_name else prop_name
-
-# -------------------------- December 2025 Targets --------------------------
-DECEMBER_2025_TARGETS = {
-    "La Millionaire Resort": 2200000,
-    "Le Poshe Beach view": 800000,
-    "Le Park Resort": 800000,
-    "La Tamara Luxury": 1848000,
-    "Le Poshe Luxury": 1144000,
-    "Le Poshe Suite": 475000,
-    "Eden Beach Resort": 438000,
-    "La Antilia Luxury": 1075000,
-    "La Coromandel Luxury": 800000,
-    "La Tamara Suite": 640000,
-    "Villa Shakti": 652000,
-    "La Paradise Luxury": 467000,
-    "La Villa Heritage": 467000,
-    "La Paradise Residency": 534000,
-    "Le Pondy Beachside": 245000,
-    "Le Royce Villa": 190000,
+mob_mapping = {
+    "Booking": ["BOOKING"],
+    "Direct": ["Direct"],
+    "Bkg-Direct": ["Bkg-Direct"],
+    "Agoda": ["Agoda"],
+    "Go-MMT": ["Goibibo", "MMT", "Go-MMT", "MAKEMYTRIP"],
+    "Walk-In": ["Walk-In"],
+    "TIE Group": ["TIE Group"],
+    "Stayflexi": ["STAYFLEXI_GHA"],
+    "Airbnb": ["Airbnb"],
+    "Social Media": ["Social Media"],
+    "Expedia": ["Expedia"],
+    "Cleartrip": ["Cleartrip"],
+    "Website": ["Stayflexi Booking Engine"],
 }
 
-# -------------------------- Property Inventory --------------------------
-PROPERTY_INVENTORY = {
-    "Le Poshe Beach view": {"all": ["101","102","201","202","203","204","301","302","303","304","Day Use 1","Day Use 2","No Show"]},
-    "La Millionaire Resort": {"all": ["101","102","103","105","201","202","203","204","205","206","207","208","301","302","303","304","305","306","307","308","401","402","Day Use 1","Day Use 2","Day Use 3","Day Use 4","Day Use 5","No Show"]},
-    "Le Poshe Luxury": {"all": ["101","102","201","202","203","204","205","301","302","303","304","305","401","402","403","404","405","501","Day Use 1","Day Use 2","No Show"]},
-    "Le Poshe Suite": {"all": ["601","602","603","604","701","702","703","704","801","Day Use 1","Day Use 2","No Show"]},
-    "La Paradise Residency": {"all": ["101","102","103","201","202","203","301","302","303","304","Day Use 1","Day Use 2","No Show"]},
-    "La Paradise Luxury": {"all": ["101","102","103","201","202","203","Day Use 1","Day Use 2","No Show"]},
-    "La Villa Heritage": {"all": ["101","102","103","201","202","203","301","Day Use 1","Day Use 2","No Show"]},
-    "Le Pondy Beachside": {"all": ["101","102","201","202","Day Use 1","Day Use 2","No Show"]},
-    "Le Royce Villa": {"all": ["101","102","201","202","Day Use 1","Day Use 2","No Show"]},
-    "La Tamara Luxury": {"all": ["101","102","103","104","105","106","201","202","203","204","205","206","301","302","303","304","305","306","401","402","403","404","Day Use 1","Day Use 2","No Show"]},
-    "La Antilia Luxury": {"all": ["101","201","202","203","204","301","302","303","304","401","Day Use 1","Day Use 2","No Show"]},
-    "La Tamara Suite": {"all": ["101","102","103","104","201","202","203","204","205","206","Day Use 1","Day Use 2","No Show"]},
-    "Le Park Resort": {"all": ["111","222","333","444","555","666","Day Use 1","Day Use 2","No Show"]},
-    "Villa Shakti": {"all": ["101","102","201","201A","202","203","301","301A","302","303","401","Day Use 1","Day Use 2","No Show"]},
-    "Eden Beach Resort": {"all": ["101","102","103","201","202","Day Use 1","Day Use 2","No Show"]},
-    "Le Terra": {"all": ["101","102","103","104","105","106","107","Day Use 1","Day Use 2","No Show"]},
-    "La Coromandel Luxury": {"all": ["101","102","103","201","202","203","204","205","206","301","Day Use 1","Day Use 2","No Show"]},
-    "Happymates Forest Retreat": {"all": ["101","102","Day Use 1","Day Use 2","No Show"]}
-}
+# ============================================================================
+# HELPER FUNCTIONS (from inventory.py)
+# ============================================================================
 
-def get_total_rooms(prop: str) -> int:
-    """Get total bookable rooms (excluding Day Use and No Show)"""
-    inv = PROPERTY_INVENTORY.get(prop, {"all": []})["all"]
-    return len([r for r in inv if not r.startswith(("Day Use", "No Show"))])
+def normalize_property(name: str) -> str:
+    return property_mapping.get(name.strip(), name.strip())
 
-# -------------------------- Helpers --------------------------
-def load_properties() -> List[str]:
+def sanitize_string(v: Any, default: str = "") -> str:
+    return str(v).strip() if v is not None else default
+
+def safe_int(v: Any, default: int = 0) -> int:
     try:
-        direct = supabase.table("reservations").select("property_name").execute().data or []
-        online = supabase.table("online_reservations").select("property").execute().data or []
-        props = {normalize_property_name(r.get("property_name") or r.get("property"))
-                 for r in direct + online if r.get("property_name") or r.get("property")}
-        return sorted(props)
-    except Exception as e:
-        st.error(f"Error loading properties: {e}")
-        return []
-
-def load_combined_bookings(prop: str, start: date, end: date) -> List[Dict]:
-    normalized_prop = normalize_property_name(prop)
-    query_props = [normalized_prop] + reverse_mapping.get(normalized_prop, [])
-    try:
-        direct = (supabase.table("reservations").select("*")
-                  .in_("property_name", query_props)
-                  .lte("check_in", str(end))
-                  .gte("check_out", str(start))
-                  .in_("plan_status", ["Confirmed", "Completed"])
-                  .in_("payment_status", ["Partially Paid", "Fully Paid"])
-                  .execute().data or [])
-
-        online = (supabase.table("online_reservations").select("*")
-                  .in_("property", query_props)
-                  .lte("check_in", str(end))
-                  .gte("check_out", str(start))
-                  .in_("booking_status", ["Confirmed", "Completed"])
-                  .in_("payment_status", ["Partially Paid", "Fully Paid"])
-                  .execute().data or [])
-
-        all_bookings = []
-        for b in direct:
-            if normalize_property_name(b.get("property_name")) == prop:
-                b["property_name"] = prop
-                b["type"] = "direct"
-                all_bookings.append(b)
-        for b in online:
-            if normalize_property_name(b.get("property")) == prop:
-                b["property"] = prop
-                b["type"] = "online"
-                all_bookings.append(b)
-        return all_bookings
-    except Exception as e:
-        st.error(f"Error loading bookings for {prop}: {e}")
-        return []
-
-def filter_bookings_for_day(bookings: List[Dict], target: date) -> List[Dict]:
-    return [
-        b for b in bookings
-        if date.fromisoformat(b["check_in"]) <= target < date.fromisoformat(b["check_out"])
-    ]
-
-def assign_inventory_numbers(daily: List[Dict], prop: str):
-    inv = PROPERTY_INVENTORY.get(prop, {"all": []})["all"]
-    inv_lookup = {i.strip().lower(): i for i in inv}
-    assigned = []
-    over = []
-    already_assigned = set()
-    
-    for b in daily:
-        raw_room = str(b.get("room_no") or "").strip()
-        if not raw_room:
-            over.append(b)
-            continue
-        requested = [r.strip() for r in raw_room.split(",") if r.strip()]
-        assigned_rooms = []
-        is_over = False
-        for r in requested:
-            key = r.lower()
-            if key not in inv_lookup:
-                is_over = True
-                break
-            room = inv_lookup[key]
-            if room in already_assigned:
-                is_over = True
-                break
-            assigned_rooms.append(room)
-        if is_over or not assigned_rooms:
-            over.append(b)
-            continue
-        for room in assigned_rooms:
-            already_assigned.add(room)
-        for idx, room in enumerate(assigned_rooms):
-            new_b = b.copy()
-            new_b["assigned_room"] = room
-            new_b["room_no"] = room
-            new_b["is_primary"] = (idx == 0)
-            assigned.append(new_b)
-    return assigned, over
-
-def safe_float(value, default=0.0):
-    try:
-        return float(value) if value not in [None, "", " "] else default
+        return int(float(v)) if v not in [None, "", " "] else default
     except:
         return default
 
-def compute_daily_metrics(bookings: List[Dict], prop: str, day: date) -> Dict:
-    daily = filter_bookings_for_day(bookings, day)
-    assigned, _ = assign_inventory_numbers(daily, prop)
-    rooms_sold = len(set(b.get("assigned_room") for b in assigned if b.get("assigned_room")))
-    check_in_primaries = [b for b in assigned if b.get("is_primary", True) and date.fromisoformat(b["check_in"]) == day]
+def safe_float(v: Any, default: float = 0) -> float:
+    try:
+        return float(v) if v not in [None, "", " "] else default
+    except:
+        return default
 
-    room_charges = gst = commission = 0.0
-    for b in check_in_primaries:
-        if b.get("type") == "online":
-            total_amount = safe_float(b.get("booking_amount"))
-            gst += safe_float(b.get("ota_tax"))
-            commission += safe_float(b.get("ota_commission"))
-            room_charges += total_amount - safe_float(b.get("ota_tax"))
+# ============================================================================
+# DATA NORMALIZATION (from inventory.py)
+# ============================================================================
+
+def normalize_booking(row: Dict, is_online: bool) -> Optional[Dict]:
+    """Normalize booking data - EXACT copy from inventory.py"""
+    try:
+        bid = sanitize_string(row.get("booking_id") or row.get("id"))
+        status_field = "booking_status" if is_online else "plan_status"
+        status = sanitize_string(row.get(status_field, "")).title()
+        if status not in ["Confirmed", "Completed"]: return None
+        pay = sanitize_string(row.get("payment_status")).title()
+        if pay not in ["Fully Paid", "Partially Paid"]: return None
+        ci = date.fromisoformat(row["check_in"])
+        co = date.fromisoformat(row["check_out"])
+        if co <= ci: return None
+        days_field = "room_nights" if is_online else "no_of_days"
+        days = safe_int(row.get(days_field)) or (co - ci).days
+        if days <= 0: days = 1
+        p = normalize_property(row.get("property_name") if not is_online else row.get("property"))
+
+        if is_online:
+            total_amount = safe_float(row.get("booking_amount")) or 0.0
+            gst = safe_float(row.get("gst")) or 0.0
+            tax = safe_float(row.get("ota_tax")) or 0.0
+            commission = safe_float(row.get("ota_commission")) or 0.0
+            room_charges = total_amount - gst - tax
         else:
-            room_charges += safe_float(b.get("total_tariff"))
+            total_amount = safe_float(row.get("total_tariff")) or 0.0
+            gst = tax = commission = 0.0
+            room_charges = total_amount
 
-    total = room_charges + gst
-    receivable = total - commission
+        receivable = total_amount - gst - tax - commission
+        if receivable < 0: receivable = 0.0
 
-    daily_per_night_sum = 0.0
-    for b in assigned:
-        if b.get("is_primary", True):
-            is_online = b.get("type") == "online"
-            if is_online:
-                booking_total = safe_float(b.get("booking_amount"))
-                booking_gst = safe_float(b.get("ota_tax"))
-                booking_commission = safe_float(b.get("ota_commission"))
-            else:
-                booking_total = safe_float(b.get("total_tariff"))
-                booking_gst = booking_commission = 0.0
-            booking_receivable = booking_total - booking_gst - booking_commission
-            days = max(b.get("days", 1), 1)
-            raw_room = str(b.get("room_no") or "").strip()
-            num_rooms = len([r.strip() for r in raw_room.split(",") if r.strip()]) if raw_room else 1
-            total_nights = days * num_rooms
-            per_night = booking_receivable / total_nights if total_nights > 0 else 0.0
-            daily_per_night_sum += per_night
+        identifier = row.get("id") if is_online else row.get("booking_id")
+        identifier_str = str(identifier) if identifier is not None else ""
 
-    return {
-        "rooms_sold": rooms_sold,
-        "receivable": receivable,
-        "receivable_per_night": daily_per_night_sum,
+        return {
+            "type": "online" if is_online else "direct",
+            "property": p,
+            "booking_id": bid,
+            "guest_name": sanitize_string(row.get("guest_name")),
+            "mobile_no": sanitize_string(row.get("guest_phone") if is_online else row.get("mobile_no")),
+            "total_pax": safe_int(row.get("total_pax")),
+            "check_in": str(ci),
+            "check_out": str(co),
+            "days": days,
+            "room_no": sanitize_string(row.get("room_no")).title(),
+            "mob": sanitize_string(row.get("mode_of_booking") if is_online else row.get("mob")),
+            "plan": sanitize_string(row.get("rate_plans") if is_online else row.get("breakfast")),
+            "room_charges": room_charges,
+            "gst": gst,
+            "tax": tax,
+            "total_amount": total_amount,
+            "commission": commission,
+            "receivable": receivable,
+            "advance": safe_float(row.get("total_payment_made") if is_online else row.get("advance_amount")),
+            "advance_mop": sanitize_string(row.get("advance_mop")),
+            "balance": safe_float(row.get("balance_due") if is_online else row.get("balance_amount")),
+            "balance_mop": sanitize_string(row.get("balance_mop")),
+            "booking_status": status,
+            "payment_status": pay,
+            "submitted_by": sanitize_string(row.get("submitted_by")),
+            "modified_by": sanitize_string(row.get("modified_by")),
+            "remarks": sanitize_string(row.get("remarks")),
+            "db_id": identifier_str,
+        }
+    except Exception as e:
+        logging.warning(f"normalize failed: {e}")
+        return None
+
+# ============================================================================
+# DATA FETCHING (from inventory.py)
+# ============================================================================
+
+def load_combined_bookings(supabase, property: str, start_date: date, end_date: date) -> List[Dict]:
+    """EXACT copy from inventory.py"""
+    prop = normalize_property(property)
+    query_props = [prop] + reverse_mapping.get(prop, [])
+    combined: List[Dict] = []
+
+    try:
+        q = supabase.table("reservations").select("*").in_("property_name", query_props).lte("check_in", str(end_date)).gte("check_out", str(start_date)).in_("plan_status", ["Confirmed", "Completed"]).in_("payment_status", ["Partially Paid", "Fully Paid"]).execute()
+        for r in q.data or []:
+            norm = normalize_booking(r, is_online=False)
+            if norm: combined.append(norm)
+    except Exception as e:
+        logging.error(f"Direct query error: {e}")
+
+    try:
+        q = supabase.table("online_reservations").select("*").in_("property", query_props).lte("check_in", str(end_date)).gte("check_out", str(start_date)).in_("booking_status", ["Confirmed", "Completed"]).in_("payment_status", ["Partially Paid", "Fully Paid"]).execute()
+        for r in q.data or []:
+            norm = normalize_booking(r, is_online=True)
+            if norm: combined.append(norm)
+    except Exception as e:
+        logging.error(f"Online query error: {e}")
+
+    return combined
+
+# ============================================================================
+# FILTERING & ASSIGNMENT (from inventory.py)
+# ============================================================================
+
+def filter_bookings_for_day(bookings: List[Dict], day: date) -> List[Dict]:
+    """EXACT copy from inventory.py"""
+    return [b.copy() for b in bookings if date.fromisoformat(b["check_in"]) <= day < date.fromisoformat(b["check_out"])]
+
+def assign_inventory_numbers(daily_bookings: List[Dict], property: str):
+    """EXACT copy from inventory.py"""
+    assigned, over = [], []
+    inv = PROPERTY_INVENTORY.get(property, {"all": []})["all"]
+    inv_lookup = {i.strip().lower(): i for i in inv}
+    
+    room_bookings = {}
+    sorted_bookings = sorted(daily_bookings, key=lambda x: (x.get("check_in", ""), x.get("booking_id", "")))
+
+    for b in sorted_bookings:
+        raw_room = str(b.get("room_no", "") or "").strip()
+        booking_id = b.get("booking_id", "Unknown")
+        
+        if not raw_room:
+            over.append(b)
+            continue
+
+        requested = [r.strip() for r in raw_room.split(",") if r.strip()]
+        assigned_rooms = []
+        is_overbooking = False
+
+        for r in requested:
+            key = r.lower()
+            if key not in inv_lookup:
+                is_overbooking = True
+                break
+            room_name = inv_lookup[key]
+            
+            if room_name in room_bookings and room_bookings[room_name] != booking_id:
+                is_overbooking = True
+                break
+            assigned_rooms.append(room_name)
+
+        if is_overbooking or not assigned_rooms:
+            over.append(b)
+            continue
+
+        for room in assigned_rooms:
+            room_bookings[room] = booking_id
+
+        days = max(b.get("days", 1), 1)
+        receivable = b.get("receivable", 0.0)
+        num_rooms = len(assigned_rooms)
+        total_nights = days * num_rooms
+        per_night = receivable / total_nights if total_nights > 0 else 0.0
+        base_pax = b["total_pax"] // num_rooms if num_rooms else 0
+        rem = b["total_pax"] % num_rooms if num_rooms else 0
+
+        for idx, room in enumerate(assigned_rooms):
+            nb = b.copy()
+            nb["assigned_room"] = room
+            nb["room_no"] = room
+            nb["total_pax"] = base_pax + (1 if idx < rem else 0)
+            nb["per_night"] = per_night
+            nb["is_primary"] = (idx == 0)
+            assigned.append(nb)
+
+    return assigned, over
+
+# ============================================================================
+# STATISTICS EXTRACTION (from inventory.py)
+# ============================================================================
+
+def extract_stats_from_assigned(assigned: List[Dict], target_date: date, mob_types: List[str]) -> Dict:
+    """Extract stats matching inventory.py logic"""
+    
+    def to_float(val):
+        try:
+            return float(val) if val not in [None, "", " "] else 0.0
+        except:
+            return 0.0
+    
+    def to_int(val):
+        try:
+            return int(val) if val not in [None, "", " "] else 0
+        except:
+            return 0
+    
+    dtd = {m: {"rooms":0,"value":0.0,"comm":0.0,"gst":0.0,"tax":0.0,"pax":0} for m in mob_types}
+    dtd_rooms = 0
+    dtd_value = 0.0
+    dtd_comm = 0.0
+    dtd_gst = 0.0
+    dtd_tax = 0.0
+    dtd_pax = 0
+
+    for booking in assigned:
+        check_in_date = date.fromisoformat(booking["check_in"])
+        is_check_in_day = (target_date == check_in_date)
+        is_primary = booking.get("is_primary", False)
+        
+        # Count rooms
+        dtd_rooms += 1
+        
+        # Per night value
+        per_night = to_float(booking.get("per_night", 0))
+        dtd_value += per_night
+        
+        # Only count full amounts on check-in day for primary booking
+        if is_check_in_day and is_primary:
+            dtd_comm += to_float(booking.get("commission", 0))
+            dtd_gst += to_float(booking.get("gst", 0))
+            dtd_tax += to_float(booking.get("tax", 0))
+        
+        # Pax
+        dtd_pax += to_int(booking.get("total_pax", 0))
+        
+        # MOB breakdown
+        mob_raw = sanitize_string(booking.get("mob", ""))
+        mob = next((m for m, vs in mob_mapping.items() if mob_raw.upper() in [v.upper() for v in vs]), "Booking")
+        
+        dtd[mob]["rooms"] += 1
+        dtd[mob]["value"] += per_night
+        dtd[mob]["pax"] += to_int(booking.get("total_pax", 0))
+        
+        if is_check_in_day and is_primary:
+            dtd[mob]["comm"] += to_float(booking.get("commission", 0))
+            dtd[mob]["gst"] += to_float(booking.get("gst", 0))
+            dtd[mob]["tax"] += to_float(booking.get("tax", 0))
+    
+    # Calculate ARR for each MOB
+    for m in mob_types:
+        r = dtd[m]["rooms"]
+        dtd[m]["arr"] = dtd[m]["value"] / r if r > 0 else 0.0
+
+    dtd["Total"] = {
+        "rooms": dtd_rooms,
+        "value": dtd_value,
+        "arr": dtd_value / dtd_rooms if dtd_rooms > 0 else 0.0,
+        "comm": dtd_comm,
+        "gst": dtd_gst,
+        "tax": dtd_tax,
+        "pax": dtd_pax
     }
 
-def build_target_achievement_report(props: List[str], dates: List[date], bookings: Dict[str, List[Dict]]) -> pd.DataFrame:
-    rows = []
-    total_target = 0.0
-    total_achieved = 0.0
-    total_rooms_available = 0
-    total_rooms_sold = 0
-    total_receivable = 0.0
-    
-    for prop in props:
-        target = DECEMBER_2025_TARGETS.get(prop, 0)
-        
-        # Calculate achieved amount (sum of receivable for all days)
-        achieved = 0.0
-        rooms_sold = 0
-        receivable = 0.0
-        
-        for d in dates:
-            metrics = compute_daily_metrics(bookings.get(prop, []), prop, d)
-            achieved += metrics.get("receivable", 0.0)
-            rooms_sold += metrics.get("rooms_sold", 0)
-            receivable += metrics.get("receivable", 0.0)
-        
-        difference = achieved - target
-        target_pct = (achieved / target * 100) if target > 0 else 0.0
-        
-        total_rooms = get_total_rooms(prop)
-        total_available_room_nights = total_rooms * len(dates)
-        occupancy_pct = (rooms_sold / total_available_room_nights * 100) if total_available_room_nights > 0 else 0.0
-        
-        arr = receivable / rooms_sold if rooms_sold > 0 else 0.0
-        per_day_revenue = receivable / len(dates) if len(dates) > 0 else 0.0
-        
-        rows.append({
-            "Property Name": prop,
-            "Target": target,
-            "Achieved": achieved,
-            "Difference": difference,
-            "Target Achieved %": target_pct,
-            "Total Rooms": total_rooms,
-            "Rooms Sold": rooms_sold,
-            "Occupancy %": occupancy_pct,
-            "Receivable": receivable,
-            "ARR": arr,
-            "Per Day Revenue": per_day_revenue
-        })
-        
-        total_target += target
-        total_achieved += achieved
-        total_rooms_available += total_available_room_nights
-        total_rooms_sold += rooms_sold
-        total_receivable += receivable
-    
-    # Add total row
-    total_diff = total_achieved - total_target
-    total_target_pct = (total_achieved / total_target * 100) if total_target > 0 else 0.0
-    total_occupancy = (total_rooms_sold / total_rooms_available * 100) if total_rooms_available > 0 else 0.0
-    total_arr = total_receivable / total_rooms_sold if total_rooms_sold > 0 else 0.0
-    total_per_day = total_receivable / len(dates) if len(dates) > 0 else 0.0
-    
-    rows.append({
-        "Property Name": "TOTAL",
-        "Target": total_target,
-        "Achieved": total_achieved,
-        "Difference": total_diff,
-        "Target Achieved %": total_target_pct,
-        "Total Rooms": "-",
-        "Rooms Sold": total_rooms_sold,
-        "Occupancy %": total_occupancy,
-        "Receivable": total_receivable,
-        "ARR": total_arr,
-        "Per Day Revenue": total_per_day
-    })
-    
-    return pd.DataFrame(rows)
+    return dtd
 
-# -------------------------- UI --------------------------
-def show_target_achievement_report():
-    st.title("🎯 Target vs Achievement Report - December 2025")
+# ============================================================================
+# EXCEL EXPORT - NEW FORMAT
+# ============================================================================
 
+def export_multiple_days_to_excel(all_dates_data: List[Dict], year: int, month: int) -> bytes:
+    """Export multiple days to Excel with separate sheet for each date"""
+    wb = Workbook()
+    
+    # Remove default sheet
+    if "Sheet" in wb.sheetnames:
+        wb.remove(wb["Sheet"])
+    
+    # Styles
+    header_fill = PatternFill(start_color="00B8A9", end_color="00B8A9", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF", size=11)
+    title_font = Font(bold=True, size=12, color="FFFFFF")
+    date_font = Font(bold=True, size=11, color="FFFFFF")
+    white_fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+    
+    center_align = Alignment(horizontal="center", vertical="center")
+    right_align = Alignment(horizontal="right", vertical="center")
+    
+    thin_border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
+    
+    # Get sorted property list
+    all_props = sorted(PROPERTY_SHORT_NAMES.keys(), key=lambda x: PROPERTY_SHORT_NAMES.get(x, x))
+    short_names = [PROPERTY_SHORT_NAMES[p] for p in all_props]
+    
+    # Create a sheet for each date
+    for day_data in all_dates_data:
+        target_date = day_data["date"]
+        metrics = day_data["metrics"]
+        totals = day_data["totals"]
+        
+        # Create sheet with date as name
+        sheet_name = target_date.strftime("%d-%b")
+        ws = wb.create_sheet(title=sheet_name)
+        
+        current_row = 1
+        
+        # Title row
+        ws.merge_cells(f'A{current_row}:{get_column_letter(len(short_names) + 3)}{current_row}')
+        title_cell = ws.cell(row=current_row, column=1, value="TIE Hotels & Resorts")
+        title_cell.font = title_font
+        title_cell.alignment = center_align
+        title_cell.fill = header_fill
+        
+        # Date in last column
+        date_cell = ws.cell(row=current_row, column=len(short_names) + 4)
+        date_cell.value = target_date.strftime("%d-%b-%y")
+        date_cell.font = date_font
+        date_cell.fill = header_fill
+        date_cell.alignment = center_align
+        current_row += 1
+        
+        # Subtitle row
+        ws.merge_cells(f'A{current_row}:{get_column_letter(len(short_names) + 4)}{current_row}')
+        subtitle_cell = ws.cell(row=current_row, column=1, value="Overall Report for the day")
+        subtitle_cell.alignment = center_align
+        subtitle_cell.fill = white_fill
+        current_row += 1
+        
+        # Header row with property names
+        header_row = current_row
+        ws.cell(row=header_row, column=1, value="")
+        
+        col_idx = 2
+        for short_name in short_names:
+            cell = ws.cell(row=header_row, column=col_idx, value=short_name)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = center_align
+            cell.border = thin_border
+            col_idx += 1
+        
+        # D.T.D and M.T.D columns
+        dtd_cell = ws.cell(row=header_row, column=col_idx, value="D.T.D")
+        dtd_cell.font = header_font
+        dtd_cell.fill = header_fill
+        dtd_cell.alignment = center_align
+        dtd_cell.border = thin_border
+        col_idx += 1
+        
+        mtd_cell = ws.cell(row=header_row, column=col_idx, value="M.T.D")
+        mtd_cell.font = header_font
+        mtd_cell.fill = header_fill
+        mtd_cell.alignment = center_align
+        mtd_cell.border = thin_border
+        
+        current_row += 1
+        
+        # Data rows
+        row_labels = ["Rooms Available", "Rooms Sold", "Occ %", "GST", "Commission", 
+                     "Receivable", "Receivable Per Night", "ARR"]
+        
+        for label in row_labels:
+            label_cell = ws.cell(row=current_row, column=1, value=label)
+            label_cell.font = Font(bold=True)
+            label_cell.border = thin_border
+            
+            col_idx = 2
+            for prop in all_props:
+                m = metrics[prop]
+                
+                if label == "Rooms Available":
+                    value = m["rooms_available"]
+                elif label == "Rooms Sold":
+                    value = m["rooms_sold"]
+                elif label == "Occ %":
+                    value = f"{m['occupancy']:.0f}%"
+                elif label == "GST":
+                    value = int(m["gst"])
+                elif label == "Commission":
+                    value = int(m["commission"])
+                elif label == "Receivable":
+                    value = int(m["receivable"])
+                elif label == "Receivable Per Night":
+                    value = int(m["receivable_per_night"])
+                elif label == "ARR":
+                    value = int(m["arr"])
+                
+                cell = ws.cell(row=current_row, column=col_idx, value=value)
+                cell.border = thin_border
+                
+                if label == "Occ %":
+                    cell.alignment = center_align
+                elif isinstance(value, (int, float)):
+                    cell.alignment = right_align
+                    if value > 0:
+                        cell.number_format = '#,##0'
+                else:
+                    cell.alignment = center_align
+                
+                col_idx += 1
+            
+            # D.T.D column
+            if label == "Rooms Available":
+                dtd_val = totals["rooms_available"]
+            elif label == "Rooms Sold":
+                dtd_val = totals["rooms_sold"]
+            elif label == "Occ %":
+                dtd_val = f"{totals['occupancy']:.0f}%"
+            elif label == "GST":
+                dtd_val = int(totals["gst"])
+            elif label == "Commission":
+                dtd_val = int(totals["commission"])
+            elif label == "Receivable":
+                dtd_val = int(totals["receivable"])
+            elif label == "Receivable Per Night":
+                dtd_val = int(totals["receivable_per_night"])
+            elif label == "ARR":
+                dtd_val = int(totals["arr"])
+            
+            cell = ws.cell(row=current_row, column=col_idx, value=dtd_val)
+            cell.border = thin_border
+            if label == "Occ %":
+                cell.alignment = center_align
+            elif isinstance(dtd_val, (int, float)):
+                cell.alignment = right_align
+                if dtd_val > 0:
+                    cell.number_format = '#,##0'
+            else:
+                cell.alignment = center_align
+            col_idx += 1
+            
+            # M.T.D column (same as D.T.D for now)
+            cell = ws.cell(row=current_row, column=col_idx, value=dtd_val)
+            cell.border = thin_border
+            if label == "Occ %":
+                cell.alignment = center_align
+            elif isinstance(dtd_val, (int, float)):
+                cell.alignment = right_align
+                if dtd_val > 0:
+                    cell.number_format = '#,##0'
+            else:
+                cell.alignment = center_align
+            
+            current_row += 1
+        
+        # Set column widths
+        ws.column_dimensions['A'].width = 22
+        for i in range(2, len(short_names) + 5):
+            ws.column_dimensions[get_column_letter(i)].width = 10
+    
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return output.getvalue()
+
+# ============================================================================
+# STREAMLIT UI
+# ============================================================================
+
+@st.cache_data(ttl=300)
+def load_month_bookings(property: str, year: int, month: int):
+    """Cache bookings for entire month"""
+    supabase = st.session_state.get('supabase_client')
+    if supabase is None:
+        from supabase import create_client
+        supabase_url = os.getenv("SUPABASE_URL", "https://oxbrezracnmazucnnqox.supabase.co")
+        supabase_key = os.getenv("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im94YnJlenJhY25tYXp1Y25ucW94Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM3NjUxMTgsImV4cCI6MjA2OTM0MTExOH0.nqBK2ZxntesLY9qYClpoFPVnXOW10KrzF-UI_DKjbKo")
+        supabase = create_client(supabase_url, supabase_key)
+    
+    start = date(year, month, 1)
+    num_days = calendar.monthrange(year, month)[1]
+    end = date(year, month, num_days)
+    
+    return load_combined_bookings(supabase, property, start, end)
+
+def show_nrd_report():
+    """Display the Night Report Dashboard in Streamlit"""
+    st.header("📊 Night Report Dashboard (NRD)")
+    st.markdown("Overall daily report for all TIE Hotels & Resorts properties")
+    
+    if st.button("🔄 Refresh Data"):
+        st.cache_data.clear()
+        st.rerun()
+    
+    # Month and Year selectors
     today = date.today()
-    year = st.selectbox("Year", options=list(range(today.year-5, today.year+6)), index=5)
-    month = st.selectbox("Month", options=list(range(1,13)), index=today.month-1)
-
-    properties = load_properties()
-    if not properties:
-        st.info("No properties found in database.")
-        return
-
-    # Filter only properties with targets
-    properties_with_targets = [p for p in properties if p in DECEMBER_2025_TARGETS]
-
-    _, days_in_month = calendar.monthrange(year, month)
-    month_dates = [date(year, month, d) for d in range(1, days_in_month + 1)]
-
-    with st.spinner("Loading booking data and calculating achievements..."):
-        bookings = {p: load_combined_bookings(p, month_dates[0], month_dates[-1]) for p in properties_with_targets}
-
-    st.subheader(f"Target vs Achievement Analysis - {calendar.month_name[month]} {year}")
+    col1, col2 = st.columns(2)
     
-    df = build_target_achievement_report(properties_with_targets, month_dates, bookings)
+    with col1:
+        year = st.selectbox("Year", list(range(today.year-5, today.year+6)), index=5, key="nrd_year")
     
-    # Display using st.dataframe with proper formatting
-    # Create a copy for display with formatted strings
-    display_df = df.copy()
+    with col2:
+        month = st.selectbox("Month", list(range(1, 13)), index=today.month-1, 
+                            format_func=lambda x: calendar.month_name[x], key="nrd_month")
     
-    # Format currency and percentage columns as strings for display
-    display_df['Target'] = display_df['Target'].apply(lambda x: f"₹{x:,.0f}" if isinstance(x, (int, float)) else x)
-    display_df['Achieved'] = display_df['Achieved'].apply(lambda x: f"₹{x:,.0f}" if isinstance(x, (int, float)) else x)
-    display_df['Difference'] = display_df['Difference'].apply(lambda x: f"₹{x:,.0f}" if isinstance(x, (int, float)) else x)
-    display_df['Target Achieved %'] = display_df['Target Achieved %'].apply(lambda x: f"{x:.1f}%" if isinstance(x, (int, float)) else x)
-    display_df['Occupancy %'] = display_df['Occupancy %'].apply(lambda x: f"{x:.1f}%" if isinstance(x, (int, float)) else x)
-    display_df['Receivable'] = display_df['Receivable'].apply(lambda x: f"₹{x:,.0f}" if isinstance(x, (int, float)) else x)
-    display_df['ARR'] = display_df['ARR'].apply(lambda x: f"₹{x:,.0f}" if isinstance(x, (int, float)) else x)
-    display_df['Per Day Revenue'] = display_df['Per Day Revenue'].apply(lambda x: f"₹{x:,.0f}" if isinstance(x, (int, float)) else x)
-    
-    st.dataframe(display_df, width='stretch', hide_index=True)
-    
-    # Summary metrics (using original df with numeric values)
     st.markdown("---")
-    total_row = df[df["Property Name"] == "TOTAL"].iloc[0]
+    
+    # Generate ALL dates for the month
+    num_days = calendar.monthrange(year, month)[1]
+    all_month_dates = [date(year, month, d) for d in range(1, num_days + 1)]
+    
+    if not all_month_dates:
+        st.warning(f"No data available for {calendar.month_name[month]} {year}")
+        return
+    
+    # Build the summary table for all dates
+    mob_types = list(mob_mapping.keys())
+    
+    # Collect data for all properties across all days
+    all_dates_data = []
+    
+    with st.spinner(f"Loading data for {calendar.month_name[month]} {year}..."):
+        # Pre-load all bookings for all properties for the month
+        all_property_bookings = {}
+        for prop in PROPERTY_SHORT_NAMES.keys():
+            all_property_bookings[prop] = load_month_bookings(prop, year, month)
+        
+        # Process each date (ALL dates in the month)
+        for target_date in all_month_dates:
+            date_metrics = {}
+            
+            for prop in PROPERTY_SHORT_NAMES.keys():
+                # Get inventory count
+                inv_data = PROPERTY_INVENTORY.get(prop, {"all": []})
+                all_rooms = inv_data["all"]
+                total_inventory = len([i for i in all_rooms if not i.startswith(("Day Use", "No Show"))])
+                
+                # Filter bookings for this day
+                bookings = all_property_bookings[prop]
+                daily = filter_bookings_for_day(bookings, target_date)
+                
+                if not daily:
+                    date_metrics[prop] = {
+                        "rooms_available": total_inventory,
+                        "rooms_sold": 0,
+                        "occupancy": 0.0,
+                        "gst": 0.0,
+                        "commission": 0.0,
+                        "receivable": 0.0,
+                        "receivable_per_night": 0.0,
+                        "arr": 0.0
+                    }
+                    continue
+                
+                # Assign inventory
+                assigned, over = assign_inventory_numbers(daily, prop)
+                
+                # Extract stats
+                stats = extract_stats_from_assigned(assigned, target_date, mob_types)
+                total_stats = stats["Total"]
+                
+                rooms_sold = total_stats["rooms"]
+                occupancy = (rooms_sold / total_inventory * 100) if total_inventory > 0 else 0.0
+                
+                date_metrics[prop] = {
+                    "rooms_available": total_inventory,
+                    "rooms_sold": rooms_sold,
+                    "occupancy": occupancy,
+                    "gst": total_stats["gst"],
+                    "commission": total_stats["comm"],
+                    "receivable": total_stats["value"],
+                    "receivable_per_night": total_stats["value"],
+                    "arr": total_stats["arr"]
+                }
+            
+            # Calculate totals for this date
+            dtd_totals = {
+                "rooms_available": sum(m["rooms_available"] for m in date_metrics.values()),
+                "rooms_sold": sum(m["rooms_sold"] for m in date_metrics.values()),
+                "gst": sum(m["gst"] for m in date_metrics.values()),
+                "commission": sum(m["commission"] for m in date_metrics.values()),
+                "receivable": sum(m["receivable"] for m in date_metrics.values()),
+                "receivable_per_night": sum(m["receivable_per_night"] for m in date_metrics.values()),
+            }
+            dtd_totals["occupancy"] = (
+                dtd_totals["rooms_sold"] / dtd_totals["rooms_available"] * 100
+                if dtd_totals["rooms_available"] > 0 else 0.0
+            )
+            dtd_totals["arr"] = (
+                dtd_totals["receivable_per_night"] / dtd_totals["rooms_sold"]
+                if dtd_totals["rooms_sold"] > 0 else 0.0
+            )
+            
+            all_dates_data.append({
+                "date": target_date,
+                "metrics": date_metrics,
+                "totals": dtd_totals
+            })
+    
+    st.success(f"✅ Loaded {len(all_month_dates)} days")
+    
+    # Build summary table for display - only show dates up to today
+    summary_rows = []
+    dates_up_to_today = [d for d in all_dates_data if d["date"] <= today]
+    
+    for day_data in dates_up_to_today:
+        target_date = day_data["date"]
+        metrics = day_data["metrics"]
+        totals = day_data["totals"]
+        
+        row = {
+            "Date": target_date.strftime("%d-%b-%Y"),
+        }
+        
+        # Add each property
+        for prop in sorted(metrics.keys(), key=lambda x: PROPERTY_SHORT_NAMES.get(x, x)):
+            short_name = PROPERTY_SHORT_NAMES.get(prop, prop)
+            m = metrics[prop]
+            row[f"{short_name}_Sold"] = m["rooms_sold"]
+            row[f"{short_name}_Occ%"] = f"{m['occupancy']:.0f}%"
+            row[f"{short_name}_Rev"] = f"₹{m['receivable']:,.0f}"
+        
+        # Add totals
+        row["Total_Sold"] = totals["rooms_sold"]
+        row["Total_Occ%"] = f"{totals['occupancy']:.0f}%"
+        row["Total_Revenue"] = f"₹{totals['receivable']:,.0f}"
+        row["Total_ARR"] = f"₹{totals['arr']:.0f}"
+        
+        summary_rows.append(row)
+    
+    # Create DataFrame
+    summary_df = pd.DataFrame(summary_rows)
+    
+    # Display summary metrics (only for dates up to today)
+    st.subheader(f"📊 Month Summary - {calendar.month_name[month]} {year}")
+    
+    total_rooms_sold = sum(d["totals"]["rooms_sold"] for d in dates_up_to_today)
+    total_revenue = sum(d["totals"]["receivable"] for d in dates_up_to_today)
+    total_gst = sum(d["totals"]["gst"] for d in dates_up_to_today)
+    avg_occupancy = sum(d["totals"]["occupancy"] for d in dates_up_to_today) / len(dates_up_to_today) if dates_up_to_today else 0
     
     col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("Total Target", f"₹{total_row['Target']:,.0f}")
-    with col2:
-        st.metric("Total Achieved", f"₹{total_row['Achieved']:,.0f}", 
-                 delta=f"₹{total_row['Difference']:,.0f}")
-    with col3:
-        st.metric("Achievement %", f"{total_row['Target Achieved %']:.1f}%")
-    with col4:
-        st.metric("Overall Occupancy", f"{total_row['Occupancy %']:.1f}%")
     
-    # Download button (using original df with numeric values)
-    csv = df.to_csv(index=False)
-    st.download_button(
-        label="📥 Download Report as CSV",
-        data=csv,
-        file_name=f"target_achievement_{calendar.month_name[month]}_{year}.csv",
-        mime="text/csv"
-    )
-
-if __name__ == "__main__":
-    show_target_achievement_report()
+    with col1:
+        st.metric("MTD Rooms Sold", f"{total_rooms_sold:,}", f"{avg_occupancy:.1f}% Avg Occ")
+    
+    with col2:
+        st.metric("MTD Revenue", f"₹{total_revenue:,.0f}")
+    
+    with col3:
+        st.metric("MTD GST", f"₹{total_gst:,.0f}")
+    
+    with col4:
+        st.metric("Days", f"{len(dates_up_to_today)}/{len(all_month_dates)}")
+    
+    st.markdown("---")
+    
+    # Display individual tables for each date
+    st.subheader("📋 Daily Reports")
+    
+    # Create tabs for easier navigation
+    if len(dates_up_to_today) > 0:
+        # Show last 7 days by default, with option to see more
+        show_all = st.checkbox("Show all dates", value=False)
+        
+        if show_all:
+            dates_to_show = dates_up_to_today
+        else:
+            dates_to_show = dates_up_to_today[-7:]  # Last 7 days
+        
+        st.info(f"Showing {len(dates_to_show)} of {len(dates_up_to_today)} days")
+        
+        # Display each date as a separate table
+        for day_data in reversed(dates_to_show):  # Most recent first
+            target_date = day_data["date"]
+            metrics = day_data["metrics"]
+            totals = day_data["totals"]
+            
+            # Create expandable section for each date
+            with st.expander(f"📅 {target_date.strftime('%d %B %Y')} - {totals['rooms_sold']} rooms, {totals['occupancy']:.0f}% occupancy", expanded=(target_date == today)):
+                # Get sorted property list
+                all_props = sorted(metrics.keys(), key=lambda x: PROPERTY_SHORT_NAMES.get(x, x))
+                short_names = [PROPERTY_SHORT_NAMES.get(p, p) for p in all_props]
+                
+                # Build table data
+                table_data = {
+                    "Metric": ["Rooms Available", "Rooms Sold", "Occ %", "GST", "Commission", 
+                              "Receivable", "Receivable Per Night", "ARR"]
+                }
+                
+                # Add each property column
+                for prop in all_props:
+                    short_name = PROPERTY_SHORT_NAMES.get(prop, prop)
+                    m = metrics[prop]
+                    table_data[short_name] = [
+                        m["rooms_available"],
+                        m["rooms_sold"],
+                        f"{m['occupancy']:.0f}%",
+                        f"₹{m['gst']:,.0f}",
+                        f"₹{m['commission']:,.0f}",
+                        f"₹{m['receivable']:,.0f}",
+                        f"₹{m['receivable_per_night']:,.0f}",
+                        f"₹{m['arr']:,.0f}"
+                    ]
+                
+                # Add D.T.D and M.T.D columns
+                table_data["D.T.D"] = [
+                    totals["rooms_available"],
+                    totals["rooms_sold"],
+                    f"{totals['occupancy']:.0f}%",
+                    f"₹{totals['gst']:,.0f}",
+                    f"₹{totals['commission']:,.0f}",
+                    f"₹{totals['receivable']:,.0f}",
+                    f"₹{totals['receivable_per_night']:,.0f}",
+                    f"₹{totals['arr']:,.0f}"
+                ]
+                
+                table_data["M.T.D"] = table_data["D.T.D"].copy()
+                
+                # Create and display DataFrame
+                date_df = pd.DataFrame(table_data)
+                st.dataframe(date_df, use_container_width=True, hide_index=True)
+    
+    st.markdown("---")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        csv = summary_df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Download CSV Report",
+            data=csv,
+            file_name=f"TIE_NRD_Report_{year}_{month:02d}.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
+    
+    with col2:
+        # Excel export includes ALL dates in the month (even future dates)
+        excel_data = export_multiple_days_to_excel(all_dates_data, year, month)
+        st.download_button(
+            label="📥 Download Excel Report (All Dates)",
+            data=excel_data,
+            file_name=f"TIE_NRD_Report_{year}_{month:02d}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
