@@ -1,4 +1,4 @@
-# inventory.py – FIXED VERSION with single editable table
+# inventory.py – FIXED VERSION - Shows all properties
 import streamlit as st
 from supabase import create_client, Client
 from datetime import date
@@ -467,7 +467,7 @@ def extract_stats_from_table(df: pd.DataFrame, mob_types: List[str]) -> Dict:
     return {"mop": mop_data, "dtd": dtd}
     
 # ═══════════════════════════════════════════════════════════════════════════
-# UI – Dashboard with single table (editable for Accounts Team)
+# UI – Dashboard with ALL properties displayed
 # ═══════════════════════════════════════════════════════════════════════════
 def show_daily_status():
     st.title("Daily Status Dashboard")
@@ -487,31 +487,52 @@ def show_daily_status():
 
     mob_types = list(mob_mapping.keys())
 
-    for prop in props:
-        if st.checkbox(f"**{prop}**", key=f"expand_{prop}"):
-            month_dates = [date(year, month, d) for d in range(1, calendar.monthrange(year, month)[1]+1)]
-            start, end = month_dates[0], month_dates[-1]
-            bookings = load_combined_bookings(prop, start, end)
+    # ✅ FIX: Display ALL properties as checkboxes
+    st.subheader("Select Properties to View")
+    
+    # Create columns for better layout (3 columns)
+    cols = st.columns(3)
+    selected_properties = []
+    
+    for idx, prop in enumerate(props):
+        col_idx = idx % 3
+        with cols[col_idx]:
+            if st.checkbox(prop, value=False, key=f"prop_check_{prop}"):
+                selected_properties.append(prop)
+    
+    st.markdown("---")
+    
+    # Only process selected properties
+    if not selected_properties:
+        st.info("👆 Please select at least one property above to view its daily status.")
+        return
 
-            # MTD aggregation
-            mtd = {m: {"rooms":0,"value":0.0,"comm":0.0} for m in mob_types}
-            mtd_rooms = mtd_value = mtd_comm = 0
+    for prop in selected_properties:
+        st.markdown(f"## 🏨 {prop}")
+        
+        month_dates = [date(year, month, d) for d in range(1, calendar.monthrange(year, month)[1]+1)]
+        start, end = month_dates[0], month_dates[-1]
+        bookings = load_combined_bookings(prop, start, end)
 
-            for day in month_dates:
-                daily = filter_bookings_for_day(bookings, day)
-                st.markdown(f"### {prop} - {day.strftime('%b %d, %Y')}")
+        # MTD aggregation
+        mtd = {m: {"rooms":0,"value":0.0,"comm":0.0} for m in mob_types}
+        mtd_rooms = mtd_value = mtd_comm = 0
 
+        for day in month_dates:
+            daily = filter_bookings_for_day(bookings, day)
+            
+            with st.expander(f"📅 {day.strftime('%b %d, %Y (%A)')}"):
                 assigned, over = assign_inventory_numbers(daily, prop)
                 display_df, full_df = create_inventory_table(assigned, over, prop, day)
 
                 if daily:
                     is_accounts_team = st.session_state.get('role', '') == "Accounts Team"
 
-                    # ✅ Single table with editable fields for Accounts Team
+                    # Single table
                     st.subheader("📊 Booking Overview")
                     
                     if is_accounts_team:
-                        # Editable table for Accounts Team with highlighted AND frozen columns
+                        # Editable table for Accounts Team
                         col_config = {
                             "Inventory No": st.column_config.TextColumn(disabled=True, pinned=True),
                             "Room No": st.column_config.TextColumn(disabled=True, pinned=True),
@@ -547,9 +568,7 @@ def show_daily_status():
                     
                         unique_key = f"{prop.replace(' ', '_')}_{day.strftime('%Y%m%d')}"
                     
-                        # Create a copy of dataframe with background colors applied via CSS
                         def apply_highlight_to_df(df):
-                            # Create a styled dataframe copy
                             def highlight_row(row):
                                 styles = [''] * len(row)
                                 col_names = df.columns.tolist()
@@ -659,7 +678,7 @@ def show_daily_status():
                                         for msg in error_details:
                                             st.code(msg)
                     else:
-                        # Read-only table for non-Accounts Team with frozen columns AND highlighting
+                        # Read-only table for non-Accounts Team
                         col_config_readonly = {
                             "Inventory No": st.column_config.TextColumn(disabled=True, pinned=True),
                             "Room No": st.column_config.TextColumn(disabled=True, pinned=True),
@@ -672,7 +691,7 @@ def show_daily_status():
                         
                     st.markdown("---")
 
-                    # ✅ Extract stats and display tables
+                    # Extract stats and display tables
                     stats = extract_stats_from_table(display_df, mob_types)
                     dtd = stats["dtd"]
                     mop_data = stats["mop"]
@@ -746,7 +765,10 @@ def show_daily_status():
                         st.subheader("Summary")
                         st.dataframe(pd.DataFrame([{"Metric": k, "Value": v} for k, v in summary.items()]), use_container_width=True, hide_index=True)
                 else:
-                    st.info("No active bookings.")
+                    st.info("No active bookings for this day.")
+        
+        st.markdown("---")
+        st.markdown("---")
 
 if __name__ == "__main__":
     show_daily_status()
