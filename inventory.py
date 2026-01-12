@@ -506,11 +506,11 @@ def show_daily_status():
                     assigned, over = assign_inventory_numbers(daily, prop)
                     display_df, full_df = create_inventory_table(assigned, over, prop, day)
 
-                        if daily:
-                        is_accounts_team = st.session_state.get('role', '') == "Accounts Team"
+                    if daily:
+                    is_accounts_team = st.session_state.get('role', '') == "Accounts Team"
 
-                        # Single table
-                        st.subheader("📊 Booking Overview")
+                    # Single table
+                    st.subheader("📊 Booking Overview")
                         
                             if is_accounts_team:
                             # Editable table for Accounts Team
