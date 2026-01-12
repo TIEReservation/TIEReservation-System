@@ -75,7 +75,7 @@ def load_properties() -> List[str]:
         online = supabase.table("online_reservations").select("property").execute().data or []
         props = {normalize_property_name(r.get("property_name") or r.get("property"))
                  for r in direct + online if r.get("property_name") or r.get("property")}
-        return sorted(props)
+        return sorted(list(PROPERTY_INVENTORY.keys()))
     except Exception as e:
         st.error(f"Error loading properties: {e}")
         return []
