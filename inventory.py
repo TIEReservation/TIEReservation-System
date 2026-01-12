@@ -487,285 +487,266 @@ def show_daily_status():
 
     mob_types = list(mob_mapping.keys())
 
-    # ✅ FIX: Display ALL properties as checkboxes
-    st.subheader("Select Properties to View")
-    
-    # Create columns for better layout (3 columns)
-    cols = st.columns(3)
-    selected_properties = []
-    
-    for idx, prop in enumerate(props):
-        col_idx = idx % 3
-        with cols[col_idx]:
-            if st.checkbox(prop, value=False, key=f"prop_check_{prop}"):
-                selected_properties.append(prop)
-    
-    st.markdown("---")
-    
-    # Only process selected properties
-    if not selected_properties:
-        st.info("👆 Please select at least one property above to view its daily status.")
-        return
+    # ✅ Display ALL properties automatically with checkboxes to expand/collapse
+    for prop in props:
+        # Use checkbox to show/hide each property section (collapsed by default)
+        if st.checkbox(f"**{prop}**", key=f"expand_{prop}", value=False):
+            month_dates = [date(year, month, d) for d in range(1, calendar.monthrange(year, month)[1]+1)]
+            start, end = month_dates[0], month_dates[-1]
+            bookings = load_combined_bookings(prop, start, end)
 
-    for prop in selected_properties:
-        st.markdown(f"## 🏨 {prop}")
-        
-        month_dates = [date(year, month, d) for d in range(1, calendar.monthrange(year, month)[1]+1)]
-        start, end = month_dates[0], month_dates[-1]
-        bookings = load_combined_bookings(prop, start, end)
+            # MTD aggregation
+            mtd = {m: {"rooms":0,"value":0.0,"comm":0.0} for m in mob_types}
+            mtd_rooms = mtd_value = mtd_comm = 0
 
-        # MTD aggregation
-        mtd = {m: {"rooms":0,"value":0.0,"comm":0.0} for m in mob_types}
-        mtd_rooms = mtd_value = mtd_comm = 0
+            for day in month_dates:
+                daily = filter_bookings_for_day(bookings, day)
+                
+                with st.expander(f"📅 {day.strftime('%b %d, %Y (%A)')}"):
+                    assigned, over = assign_inventory_numbers(daily, prop)
+                    display_df, full_df = create_inventory_table(assigned, over, prop, day)
 
-        for day in month_dates:
-            daily = filter_bookings_for_day(bookings, day)
-            
-            with st.expander(f"📅 {day.strftime('%b %d, %Y (%A)')}"):
-                assigned, over = assign_inventory_numbers(daily, prop)
-                display_df, full_df = create_inventory_table(assigned, over, prop, day)
+                        if daily:
+                        is_accounts_team = st.session_state.get('role', '') == "Accounts Team"
 
-                if daily:
-                    is_accounts_team = st.session_state.get('role', '') == "Accounts Team"
-
-                    # Single table
-                    st.subheader("📊 Booking Overview")
-                    
-                    if is_accounts_team:
-                        # Editable table for Accounts Team
-                        col_config = {
-                            "Inventory No": st.column_config.TextColumn(disabled=True, pinned=True),
-                            "Room No": st.column_config.TextColumn(disabled=True, pinned=True),
-                            "Booking ID": st.column_config.TextColumn(disabled=True, pinned=True),
-                            "Guest Name": st.column_config.TextColumn(disabled=True, pinned=True),
-                            "Mobile No": st.column_config.TextColumn(disabled=True),
-                            "Total Pax": st.column_config.NumberColumn(disabled=True),
-                            "Check In": st.column_config.TextColumn(disabled=True),
-                            "Check Out": st.column_config.TextColumn(disabled=True),
-                            "Days": st.column_config.NumberColumn(disabled=True),
-                            "MOB": st.column_config.TextColumn(disabled=True),
-                            "Room Charges": st.column_config.TextColumn(disabled=True),
-                            "GST": st.column_config.TextColumn(disabled=True),
-                            "TAX": st.column_config.TextColumn(disabled=True),
-                            "Total": st.column_config.TextColumn("💰 Total", disabled=True),
-                            "Commission": st.column_config.TextColumn(disabled=True),
-                            "Hotel Receivable": st.column_config.TextColumn(disabled=True),
-                            "Per Night": st.column_config.TextColumn(disabled=True),
-                            "Advance": st.column_config.TextColumn("💳 Advance", disabled=True),
-                            "Advance Mop": st.column_config.TextColumn(disabled=True),
-                            "Balance": st.column_config.TextColumn(disabled=True),
-                            "Balance Mop": st.column_config.TextColumn("💵 Balance Mop", disabled=True),
-                            "Plan": st.column_config.TextColumn(disabled=True),
-                            "Booking Status": st.column_config.TextColumn(disabled=True),
-                            "Payment Status": st.column_config.TextColumn(disabled=True),
-                            "Submitted by": st.column_config.TextColumn(disabled=True),
-                            "Modified by": st.column_config.TextColumn(disabled=True),
-                            "Remarks": st.column_config.TextColumn(disabled=True),
-                            "Advance Remarks": st.column_config.TextColumn("✏️ Advance Remarks", disabled=False, max_chars=500),
-                            "Balance Remarks": st.column_config.TextColumn("✏️ Balance Remarks", disabled=False, max_chars=500),
-                            "Accounts Status": st.column_config.SelectboxColumn("✏️ Accounts Status", options=["Pending", "Completed"], disabled=False),
-                        }
-                    
-                        unique_key = f"{prop.replace(' ', '_')}_{day.strftime('%Y%m%d')}"
-                    
-                        def apply_highlight_to_df(df):
-                            def highlight_row(row):
-                                styles = [''] * len(row)
-                                col_names = df.columns.tolist()
-                                if 'Total' in col_names:
-                                    styles[col_names.index('Total')] = 'background-color: #D3D3D3'
-                                if 'Advance' in col_names:
-                                    styles[col_names.index('Advance')] = 'background-color: #D3D3D3'
-                                if 'Balance Mop' in col_names:
-                                    styles[col_names.index('Balance Mop')] = 'background-color: #D3D3D3'
-                                return styles
-                            
-                            return df.style.apply(highlight_row, axis=1)
-                    
-                        styled_df = apply_highlight_to_df(display_df)
-                    
-                        with st.form(key=f"form_{unique_key}"):
-                            edited = st.data_editor(
-                                styled_df,
-                                column_config=col_config,
-                                hide_index=True,
-                                use_container_width=True,
-                                num_rows="fixed",
-                                key=f"editor_{unique_key}",
-                                height=400
-                            )
-                            
-                            submitted = st.form_submit_button("💾 Save Changes", use_container_width=False)
-                    
-                            if submitted:
-                                updates = {}
-                                for i in range(len(edited)):
-                                    er = edited.iloc[i]
-                                    fr = full_df.iloc[i]
-                                    
-                                    bid = str(er.get("Booking ID", "")).strip()
-                                    if not bid:
-                                        continue
-                    
-                                    db_id = str(fr.get("db_id", "")).strip()
-                                    btype = str(fr.get("type", "")).strip()
-                    
-                                    if not db_id or not btype:
-                                        continue
-                    
-                                    update_key = f"{bid}_{i}"
-                                    
-                                    advance_remarks = str(er.get("Advance Remarks", "") or "").strip()
-                                    balance_remarks = str(er.get("Balance Remarks", "") or "").strip()
-                                    accounts_status = str(er.get("Accounts Status", "Pending")).strip()
-                                    
-                                    updates[update_key] = {
-                                        "advance_remarks": advance_remarks if advance_remarks else None,
-                                        "balance_remarks": balance_remarks if balance_remarks else None,
-                                        "accounts_status": accounts_status,
-                                        "type": btype,
-                                        "db_id": db_id,
-                                        "booking_id": bid
-                                    }
-                    
-                                success = error = 0
-                                error_details = []
-                                processed_bookings = set()
-                    
-                                for update_key, data in updates.items():
-                                    bid = data["booking_id"]
-                                    
-                                    if bid in processed_bookings:
-                                        continue
-                                    
-                                    processed_bookings.add(bid)
-                                    
-                                    update_data = {
-                                        "advance_remarks": data["advance_remarks"],
-                                        "balance_remarks": data["balance_remarks"],
-                                        "accounts_status": data["accounts_status"],
-                                    }
-                                    
-                                    update_data = {k: v for k, v in update_data.items() if v is not None}
-                                    
-                                    logging.info(f"Saving {data['type']} booking {bid} | Key: {data['db_id'] if data['type']=='online' else bid} | Data: {update_data}")
-                    
-                                    try:
-                                        if data["type"] == "online":
-                                            res = supabase.table("online_reservations").update(update_data).eq("id", data["db_id"]).execute()
-                                        else:
-                                            res = supabase.table("reservations").update(update_data).eq("booking_id", bid).execute()
-                    
-                                        if res.data:
-                                            success += 1
-                                            logging.info(f"Successfully updated {bid}")
-                                        else:
+                        # Single table
+                        st.subheader("📊 Booking Overview")
+                        
+                            if is_accounts_team:
+                            # Editable table for Accounts Team
+                                col_config = {
+                                    "Inventory No": st.column_config.TextColumn(disabled=True, pinned=True),
+                                "Room No": st.column_config.TextColumn(disabled=True, pinned=True),
+                                "Booking ID": st.column_config.TextColumn(disabled=True, pinned=True),
+                                "Guest Name": st.column_config.TextColumn(disabled=True, pinned=True),
+                                "Mobile No": st.column_config.TextColumn(disabled=True),
+                                "Total Pax": st.column_config.NumberColumn(disabled=True),
+                                "Check In": st.column_config.TextColumn(disabled=True),
+                                "Check Out": st.column_config.TextColumn(disabled=True),
+                                "Days": st.column_config.NumberColumn(disabled=True),
+                                "MOB": st.column_config.TextColumn(disabled=True),
+                                "Room Charges": st.column_config.TextColumn(disabled=True),
+                                "GST": st.column_config.TextColumn(disabled=True),
+                                "TAX": st.column_config.TextColumn(disabled=True),
+                                "Total": st.column_config.TextColumn("💰 Total", disabled=True),
+                                "Commission": st.column_config.TextColumn(disabled=True),
+                                "Hotel Receivable": st.column_config.TextColumn(disabled=True),
+                                "Per Night": st.column_config.TextColumn(disabled=True),
+                                "Advance": st.column_config.TextColumn("💳 Advance", disabled=True),
+                                "Advance Mop": st.column_config.TextColumn(disabled=True),
+                                "Balance": st.column_config.TextColumn(disabled=True),
+                                "Balance Mop": st.column_config.TextColumn("💵 Balance Mop", disabled=True),
+                                "Plan": st.column_config.TextColumn(disabled=True),
+                                "Booking Status": st.column_config.TextColumn(disabled=True),
+                                "Payment Status": st.column_config.TextColumn(disabled=True),
+                                "Submitted by": st.column_config.TextColumn(disabled=True),
+                                "Modified by": st.column_config.TextColumn(disabled=True),
+                                "Remarks": st.column_config.TextColumn(disabled=True),
+                                "Advance Remarks": st.column_config.TextColumn("✏️ Advance Remarks", disabled=False, max_chars=500),
+                                "Balance Remarks": st.column_config.TextColumn("✏️ Balance Remarks", disabled=False, max_chars=500),
+                                "Accounts Status": st.column_config.SelectboxColumn("✏️ Accounts Status", options=["Pending", "Completed"], disabled=False),
+                            }
+                        
+                                unique_key = f"{prop.replace(' ', '_')}_{day.strftime('%Y%m%d')}"
+                        
+                            def apply_highlight_to_df(df):
+                                def highlight_row(row):
+                                    styles = [''] * len(row)
+                                    col_names = df.columns.tolist()
+                                    if 'Total' in col_names:
+                                        styles[col_names.index('Total')] = 'background-color: #D3D3D3'
+                                    if 'Advance' in col_names:
+                                        styles[col_names.index('Advance')] = 'background-color: #D3D3D3'
+                                    if 'Balance Mop' in col_names:
+                                        styles[col_names.index('Balance Mop')] = 'background-color: #D3D3D3'
+                                    return styles
+                                
+                                return df.style.apply(highlight_row, axis=1)
+                        
+                                styled_df = apply_highlight_to_df(display_df)
+                        
+                            with st.form(key=f"form_{unique_key}"):
+                                edited = st.data_editor(
+                                    styled_df,
+                                    column_config=col_config,
+                                    hide_index=True,
+                                    use_container_width=True,
+                                    num_rows="fixed",
+                                    key=f"editor_{unique_key}",
+                                    height=400
+                                )
+                                
+                                    submitted = st.form_submit_button("💾 Save Changes", use_container_width=False)
+                        
+                                    if submitted:
+                                    updates = {}
+                                    for i in range(len(edited)):
+                                        er = edited.iloc[i]
+                                        fr = full_df.iloc[i]
+                                        
+                                        bid = str(er.get("Booking ID", "")).strip()
+                                        if not bid:
+                                            continue
+                        
+                                        db_id = str(fr.get("db_id", "")).strip()
+                                        btype = str(fr.get("type", "")).strip()
+                        
+                                        if not db_id or not btype:
+                                            continue
+                        
+                                        update_key = f"{bid}_{i}"
+                                        
+                                        advance_remarks = str(er.get("Advance Remarks", "") or "").strip()
+                                        balance_remarks = str(er.get("Balance Remarks", "") or "").strip()
+                                        accounts_status = str(er.get("Accounts Status", "Pending")).strip()
+                                        
+                                        updates[update_key] = {
+                                            "advance_remarks": advance_remarks if advance_remarks else None,
+                                            "balance_remarks": balance_remarks if balance_remarks else None,
+                                            "accounts_status": accounts_status,
+                                            "type": btype,
+                                            "db_id": db_id,
+                                            "booking_id": bid
+                                            }
+                        
+                                    success = error = 0
+                                    error_details = []
+                                    processed_bookings = set()
+                        
+                                    for update_key, data in updates.items():
+                                        bid = data["booking_id"]
+                                        
+                                        if bid in processed_bookings:
+                                            continue
+                                        
+                                        processed_bookings.add(bid)
+                                        
+                                        update_data = {
+                                            "advance_remarks": data["advance_remarks"],
+                                            "balance_remarks": data["balance_remarks"],
+                                            "accounts_status": data["accounts_status"],
+                                        }
+                                        
+                                        update_data = {k: v for k, v in update_data.items() if v is not None}
+                                        
+                                        logging.info(f"Saving {data['type']} booking {bid} | Key: {data['db_id'] if data['type']=='online' else bid} | Data: {update_data}")
+                        
+                                        try:
+                                            if data["type"] == "online":
+                                                res = supabase.table("online_reservations").update(update_data).eq("id", data["db_id"]).execute()
+                                            else:
+                                                res = supabase.table("reservations").update(update_data).eq("booking_id", bid).execute()
+                        
+                                            if res.data:
+                                                success += 1
+                                                logging.info(f"Successfully updated {bid}")
+                                            else:
+                                                error += 1
+                                                error_details.append(f"{bid}: No rows updated")
+                                                logging.warning(f"No rows updated for {bid}")
+                                        except Exception as e:
                                             error += 1
-                                            error_details.append(f"{bid}: No rows updated")
-                                            logging.warning(f"No rows updated for {bid}")
-                                    except Exception as e:
-                                        error += 1
-                                        error_details.append(f"{bid}: {str(e)}")
-                                        logging.error(f"Save failed {bid}: {e}")
-                    
-                                if success:
-                                    st.success(f"✅ Saved {success} booking(s)!")
-                                    st.cache_data.clear()
-                                    st.rerun()
-                                if error:
-                                    st.error(f"⚠️ {error} failed")
-                                    with st.expander("Error Details"):
-                                        for msg in error_details:
-                                            st.code(msg)
-                    else:
-                        # Read-only table for non-Accounts Team
-                        col_config_readonly = {
-                            "Inventory No": st.column_config.TextColumn(disabled=True, pinned=True),
-                            "Room No": st.column_config.TextColumn(disabled=True, pinned=True),
-                            "Booking ID": st.column_config.TextColumn(disabled=True, pinned=True),
-                            "Guest Name": st.column_config.TextColumn(disabled=True, pinned=True),
+                                            error_details.append(f"{bid}: {str(e)}")
+                                            logging.error(f"Save failed {bid}: {e}")
+                        
+                                    if success:
+                                        st.success(f"✅ Saved {success} booking(s)!")
+                                        st.cache_data.clear()
+                                        st.rerun()
+                                    if error:
+                                        st.error(f"⚠️ {error} failed")
+                                        with st.expander("Error Details"):
+                                            for msg in error_details:
+                                                st.code(msg)
+                            else:
+                            # Read-only table for non-Accounts Team
+                            col_config_readonly = {
+                                "Inventory No": st.column_config.TextColumn(disabled=True, pinned=True),
+                                "Room No": st.column_config.TextColumn(disabled=True, pinned=True),
+                                "Booking ID": st.column_config.TextColumn(disabled=True, pinned=True),
+                                "Guest Name": st.column_config.TextColumn(disabled=True, pinned=True),
+                            }
+                            
+                            styled_display = display_df.style.apply(highlight_columns, axis=None)
+                            st.dataframe(styled_display, column_config=col_config_readonly, use_container_width=True, height=400, hide_index=True)
+                            
+                        st.markdown("---")
+
+                        # Extract stats and display tables
+                        stats = extract_stats_from_table(display_df, mob_types)
+                        dtd = stats["dtd"]
+                        mop_data = stats["mop"]
+
+                        # Accumulate MTD
+                        for m in mob_types:
+                            mtd[m]["rooms"] += dtd[m]["rooms"]
+                            mtd[m]["value"] += dtd[m]["value"]
+                            mtd[m]["comm"] += dtd[m]["comm"]
+                        
+                        mtd_rooms += dtd["Total"]["rooms"]
+                        mtd_value += dtd["Total"]["value"]
+                        mtd_comm += dtd["Total"]["comm"]
+
+                        # DTD Table
+                        dtd_df = pd.DataFrame([
+                            {"MOB": m, "D.T.D Rooms": d["rooms"], "D.T.D Value": f"₹{d['value']:,.2f}",
+                             "D.T.D ARR": f"₹{d['arr']:,.2f}", "D.T.D Comm": f"₹{d['comm']:,.2f}"} 
+                            for m, d in dtd.items() if m != "Total"
+                        ] + [{"MOB": "Total", "D.T.D Rooms": dtd["Total"]["rooms"], 
+                              "D.T.D Value": f"₹{dtd['Total']['value']:,.2f}",
+                              "D.T.D ARR": f"₹{dtd['Total']['arr']:,.2f}", 
+                              "D.T.D Comm": f"₹{dtd['Total']['comm']:,.2f}"}],
+                            columns=["MOB","D.T.D Rooms","D.T.D Value","D.T.D ARR","D.T.D Comm"])
+
+                        # MOP Table
+                        mop_df = pd.DataFrame([{"MOP": m, "Amount": f"₹{v:,.2f}"} for m, v in mop_data.items()], 
+                                             columns=["MOP", "Amount"])
+
+                        # MTD Table
+                        mtd_df = pd.DataFrame([
+                            {"MOB": m, "M.T.D Rooms": mtd[m]["rooms"], "M.T.D Value": f"₹{mtd[m]['value']:,.2f}",
+                             "M.T.D ARR": f"₹{mtd[m]['value']/mtd[m]['rooms']:,.2f}" if mtd[m]["rooms"] > 0 else "₹0.00",
+                             "M.T.D Comm": f"₹{mtd[m]['comm']:,.2f}"} for m in mob_types
+                        ] + [{"MOB": "Total", "M.T.D Rooms": mtd_rooms, "M.T.D Value": f"₹{mtd_value:,.2f}",
+                              "M.T.D ARR": f"₹{mtd_value/mtd_rooms:,.2f}" if mtd_rooms > 0 else "₹0.00",
+                              "M.T.D Comm": f"₹{mtd_comm:,.2f}"}], 
+                            columns=["MOB","M.T.D Rooms","M.T.D Value","M.T.D ARR","M.T.D Comm"])
+
+                        # Summary Stats
+                        total_inventory = len([i for i in PROPERTY_INVENTORY.get(prop,{}).get("all",[]) if not i.startswith(("Day Use","No Show"))])
+                        occ_pct = (dtd["Total"]["rooms"] / total_inventory * 100) if total_inventory else 0.0
+                        mtd_occ_pct = (mtd_rooms / (total_inventory * day.day) * 100) if total_inventory and day.day > 0 else 0.0
+
+                        summary = {
+                            "Rooms Sold": dtd["Total"]["rooms"],
+                            "Hotel Revenue": f"₹{dtd['Total']['value']:,.2f}",
+                            "ARR": f"₹{dtd['Total']['arr']:,.2f}",
+                            "Occupancy": f"{occ_pct:.1f}%",
+                            "Total Pax": dtd["Total"]["pax"],
+                            "Total Rooms": total_inventory,
+                            "GST Paid": f"₹{dtd['Total']['gst']:,.2f}",
+                            "TAX Paid": f"₹{dtd['Total']['tax']:,.2f}",
+                            "Commission Paid": f"₹{dtd['Total']['comm']:,.2f}",
+                            "MTD Occupancy": f"{mtd_occ_pct:.1f}%",
+                            "MTD Revenue": f"₹{mtd_value:,.2f}",
                         }
-                        
-                        styled_display = display_df.style.apply(highlight_columns, axis=None)
-                        st.dataframe(styled_display, column_config=col_config_readonly, use_container_width=True, height=400, hide_index=True)
-                        
-                    st.markdown("---")
 
-                    # Extract stats and display tables
-                    stats = extract_stats_from_table(display_df, mob_types)
-                    dtd = stats["dtd"]
-                    mop_data = stats["mop"]
-
-                    # Accumulate MTD
-                    for m in mob_types:
-                        mtd[m]["rooms"] += dtd[m]["rooms"]
-                        mtd[m]["value"] += dtd[m]["value"]
-                        mtd[m]["comm"] += dtd[m]["comm"]
-                    
-                    mtd_rooms += dtd["Total"]["rooms"]
-                    mtd_value += dtd["Total"]["value"]
-                    mtd_comm += dtd["Total"]["comm"]
-
-                    # DTD Table
-                    dtd_df = pd.DataFrame([
-                        {"MOB": m, "D.T.D Rooms": d["rooms"], "D.T.D Value": f"₹{d['value']:,.2f}",
-                         "D.T.D ARR": f"₹{d['arr']:,.2f}", "D.T.D Comm": f"₹{d['comm']:,.2f}"} 
-                        for m, d in dtd.items() if m != "Total"
-                    ] + [{"MOB": "Total", "D.T.D Rooms": dtd["Total"]["rooms"], 
-                          "D.T.D Value": f"₹{dtd['Total']['value']:,.2f}",
-                          "D.T.D ARR": f"₹{dtd['Total']['arr']:,.2f}", 
-                          "D.T.D Comm": f"₹{dtd['Total']['comm']:,.2f}"}],
-                        columns=["MOB","D.T.D Rooms","D.T.D Value","D.T.D ARR","D.T.D Comm"])
-
-                    # MOP Table
-                    mop_df = pd.DataFrame([{"MOP": m, "Amount": f"₹{v:,.2f}"} for m, v in mop_data.items()], 
-                                         columns=["MOP", "Amount"])
-
-                    # MTD Table
-                    mtd_df = pd.DataFrame([
-                        {"MOB": m, "M.T.D Rooms": mtd[m]["rooms"], "M.T.D Value": f"₹{mtd[m]['value']:,.2f}",
-                         "M.T.D ARR": f"₹{mtd[m]['value']/mtd[m]['rooms']:,.2f}" if mtd[m]["rooms"] > 0 else "₹0.00",
-                         "M.T.D Comm": f"₹{mtd[m]['comm']:,.2f}"} for m in mob_types
-                    ] + [{"MOB": "Total", "M.T.D Rooms": mtd_rooms, "M.T.D Value": f"₹{mtd_value:,.2f}",
-                          "M.T.D ARR": f"₹{mtd_value/mtd_rooms:,.2f}" if mtd_rooms > 0 else "₹0.00",
-                          "M.T.D Comm": f"₹{mtd_comm:,.2f}"}], 
-                        columns=["MOB","M.T.D Rooms","M.T.D Value","M.T.D ARR","M.T.D Comm"])
-
-                    # Summary Stats
-                    total_inventory = len([i for i in PROPERTY_INVENTORY.get(prop,{}).get("all",[]) if not i.startswith(("Day Use","No Show"))])
-                    occ_pct = (dtd["Total"]["rooms"] / total_inventory * 100) if total_inventory else 0.0
-                    mtd_occ_pct = (mtd_rooms / (total_inventory * day.day) * 100) if total_inventory and day.day > 0 else 0.0
-
-                    summary = {
-                        "Rooms Sold": dtd["Total"]["rooms"],
-                        "Hotel Revenue": f"₹{dtd['Total']['value']:,.2f}",
-                        "ARR": f"₹{dtd['Total']['arr']:,.2f}",
-                        "Occupancy": f"{occ_pct:.1f}%",
-                        "Total Pax": dtd["Total"]["pax"],
-                        "Total Rooms": total_inventory,
-                        "GST Paid": f"₹{dtd['Total']['gst']:,.2f}",
-                        "TAX Paid": f"₹{dtd['Total']['tax']:,.2f}",
-                        "Commission Paid": f"₹{dtd['Total']['comm']:,.2f}",
-                        "MTD Occupancy": f"{mtd_occ_pct:.1f}%",
-                        "MTD Revenue": f"₹{mtd_value:,.2f}",
-                    }
-
-                    # Display Tables in 4 columns
-                    c1, c2, c3, c4 = st.columns(4)
-                    with c1: 
-                        st.subheader("MOP")
-                        st.dataframe(mop_df, use_container_width=True, hide_index=True)
-                    with c2: 
-                        st.subheader("Day Revenue")
-                        st.dataframe(dtd_df, use_container_width=True, hide_index=True)
-                    with c3: 
-                        st.subheader("Month Revenue")
-                        st.dataframe(mtd_df, use_container_width=True, hide_index=True)
-                    with c4:
-                        st.subheader("Summary")
-                        st.dataframe(pd.DataFrame([{"Metric": k, "Value": v} for k, v in summary.items()]), use_container_width=True, hide_index=True)
-                else:
-                    st.info("No active bookings for this day.")
+                        # Display Tables in 4 columns
+                        c1, c2, c3, c4 = st.columns(4)
+                        with c1: 
+                            st.subheader("MOP")
+                            st.dataframe(mop_df, use_container_width=True, hide_index=True)
+                        with c2: 
+                            st.subheader("Day Revenue")
+                            st.dataframe(dtd_df, use_container_width=True, hide_index=True)
+                        with c3: 
+                            st.subheader("Month Revenue")
+                            st.dataframe(mtd_df, use_container_width=True, hide_index=True)
+                        with c4:
+                            st.subheader("Summary")
+                            st.dataframe(pd.DataFrame([{"Metric": k, "Value": v} for k, v in summary.items()]), use_container_width=True, hide_index=True)
+                    else:
+                        st.info("No active bookings for this day.")
         
         st.markdown("---")
         st.markdown("---")
