@@ -92,9 +92,6 @@ def load_properties() -> List[str]:
         "Happymates Forest Retreat": {}
     }
     return sorted(list(PROPERTY_INVENTORY.keys()))
-    except Exception as e:
-        st.error(f"Error loading properties: {e}")
-        return []
 
 @st.cache_data(ttl=1800)
 def load_combined_bookings(prop: str, start: date, end: date) -> List[Dict]:
