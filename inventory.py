@@ -1,4 +1,4 @@
-# inventory.py – FIXED VERSION - Shows all properties
+# inventory.py — FIXED VERSION - Shows all properties
 import streamlit as st
 from supabase import create_client, Client
 from datetime import date
@@ -467,7 +467,7 @@ def extract_stats_from_table(df: pd.DataFrame, mob_types: List[str]) -> Dict:
     return {"mop": mop_data, "dtd": dtd}
     
 # ═══════════════════════════════════════════════════════════════════════════
-# UI – Dashboard with ALL properties displayed
+# UI — Dashboard with ALL properties displayed
 # ═══════════════════════════════════════════════════════════════════════════
 def show_daily_status():
     st.title("Daily Status Dashboard")
@@ -507,15 +507,15 @@ def show_daily_status():
                     display_df, full_df = create_inventory_table(assigned, over, prop, day)
 
                     if daily:
-                    is_accounts_team = st.session_state.get('role', '') == "Accounts Team"
+                        is_accounts_team = st.session_state.get('role', '') == "Accounts Team"
 
-                    # Single table
-                    st.subheader("📊 Booking Overview")
+                        # Single table
+                        st.subheader("📊 Booking Overview")
                         
-                            if is_accounts_team:
+                        if is_accounts_team:
                             # Editable table for Accounts Team
-                                col_config = {
-                                    "Inventory No": st.column_config.TextColumn(disabled=True, pinned=True),
+                            col_config = {
+                                "Inventory No": st.column_config.TextColumn(disabled=True, pinned=True),
                                 "Room No": st.column_config.TextColumn(disabled=True, pinned=True),
                                 "Booking ID": st.column_config.TextColumn(disabled=True, pinned=True),
                                 "Guest Name": st.column_config.TextColumn(disabled=True, pinned=True),
@@ -547,7 +547,7 @@ def show_daily_status():
                                 "Accounts Status": st.column_config.SelectboxColumn("✏️ Accounts Status", options=["Pending", "Completed"], disabled=False),
                             }
                         
-                                unique_key = f"{prop.replace(' ', '_')}_{day.strftime('%Y%m%d')}"
+                            unique_key = f"{prop.replace(' ', '_')}_{day.strftime('%Y%m%d')}"
                         
                             def apply_highlight_to_df(df):
                                 def highlight_row(row):
@@ -563,7 +563,7 @@ def show_daily_status():
                                 
                                 return df.style.apply(highlight_row, axis=1)
                         
-                                styled_df = apply_highlight_to_df(display_df)
+                            styled_df = apply_highlight_to_df(display_df)
                         
                             with st.form(key=f"form_{unique_key}"):
                                 edited = st.data_editor(
@@ -576,9 +576,9 @@ def show_daily_status():
                                     height=400
                                 )
                                 
-                                    submitted = st.form_submit_button("💾 Save Changes", use_container_width=False)
+                                submitted = st.form_submit_button("💾 Save Changes", use_container_width=False)
                         
-                                    if submitted:
+                                if submitted:
                                     updates = {}
                                     for i in range(len(edited)):
                                         er = edited.iloc[i]
@@ -607,7 +607,7 @@ def show_daily_status():
                                             "type": btype,
                                             "db_id": db_id,
                                             "booking_id": bid
-                                            }
+                                        }
                         
                                     success = error = 0
                                     error_details = []
@@ -658,7 +658,7 @@ def show_daily_status():
                                         with st.expander("Error Details"):
                                             for msg in error_details:
                                                 st.code(msg)
-                            else:
+                        else:
                             # Read-only table for non-Accounts Team
                             col_config_readonly = {
                                 "Inventory No": st.column_config.TextColumn(disabled=True, pinned=True),
