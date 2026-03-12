@@ -499,7 +499,7 @@ def show_new_reservation_form():
             st.text_input("Total Pax", value=str(total_pax), disabled=True, key=f"{form_key}_total_pax", help="Adults + Children + Infants")
         with row4_col2:
             mob = st.selectbox("MOB (Mode of Booking)",
-                               ["Direct", "Online", "Agent", "Walk-in", "Phone", "Website", "Booking-Drt", "Social Media","Airbnb", "Stay-back", "TIE-Group", "Others"],
+                               ["Direct", "Online", "Agent", "Walk-in", "Phone", "Website", "Booking-Drt", "Social Media", "Stay-back", "Airbnb", "TIE-Group", "Others"],
                                key=f"{form_key}_mob")
             if mob == "Others":
                 custom_mob = st.text_input("Custom MOB", key=f"{form_key}_custom_mob")
@@ -529,7 +529,7 @@ def show_new_reservation_form():
         with row5_col3:
             advance_amount = st.number_input("Advance Amount", min_value=0.0, step=100.0, key=f"{form_key}_advance")
         with row5_col4:
-            advance_mop_options = ["Cash", "Card", "UPI", "Airbnb", "Bank Transfer", "ClearTrip", "TIE Management", "Booking.com", "Not Paid", "Other"]
+            advance_mop_options = ["Cash", "Card", "UPI", "Bank Transfer", "ClearTrip", "TIE Management", "Airbnb", "Booking.com", "Not Paid", "Other"]
             advance_mop = st.selectbox("Advance MOP", advance_mop_options, key=f"{form_key}_advmop")
             if advance_mop == "Other":
                 custom_advance_mop = st.text_input("Custom Advance MOP", key=f"{form_key}_custom_advmop")
@@ -541,7 +541,7 @@ def show_new_reservation_form():
             balance_amount = max(0, total_tariff - safe_float(advance_amount))
             st.text_input("Balance Amount", value=f"₹{balance_amount:.2f}", disabled=True, key=f"{form_key}_balance_amount", help="Total Tariff - Advance Amount")
         with row6_col2:
-            balance_mop_options = [" ", "Not Paid", "Cash", "Card", "UPI", "Bank Transfer", "Other"]
+            balance_mop_options = [" ", "Not Paid", "Cash", "Card", "UPI","Airbnb", "Bank Transfer", "Other"]
             balance_mop = st.selectbox("Balance MOP", balance_mop_options, key=f"{form_key}_balmop")
             if balance_mop == "Other":
                 custom_balance_mop = st.text_input("Custom Balance MOP", key=f"{form_key}_custom_balmop")
@@ -550,7 +550,8 @@ def show_new_reservation_form():
 
         row7_col1, row7_col2 = st.columns(2)
         with row7_col1:
-            booking_date = st.date_input("Booking Date", value=date.today(), key=f"{form_key}_booking")
+            booking_date = date.today()
+            st.text_input("Booking Date", value=booking_date.strftime("%Y-%m-%d"), disabled=True, key=f"{form_key}_booking", help="Automatically set to today's date")
         with row7_col2:
             invoice_no = st.text_input("Invoice No", key=f"{form_key}_invoice")
 
@@ -839,7 +840,7 @@ def show_edit_form(edit_index):
         with row5_col3:
             advance_amount = st.number_input("Advance Amount", min_value=0.0, value=reservation["Advance Amount"], step=100.0, key=f"{form_key}_advance")
         with row5_col4:
-            advance_mop_options = [" ", "Cash", "Card", "UPI", "Airbnb", "Bank Transfer", "ClearTrip", "TIE Management", "Booking.com", "Pending", "Other"]
+            advance_mop_options = [" ", "Cash", "Card", "UPI", "Bank Transfer", "ClearTrip", "TIE Management", "Airbnb", "Booking.com", "Pending", "Other"]
             advance_mop_index = advance_mop_options.index(reservation["Advance MOP"]) if reservation["Advance MOP"] in advance_mop_options else len(advance_mop_options) - 1
             advance_mop = st.selectbox("Advance MOP", advance_mop_options, index=advance_mop_index, key=f"{form_key}_advmop")
             if advance_mop == "Other":
@@ -862,7 +863,9 @@ def show_edit_form(edit_index):
 
         row7_col1, row7_col2, row7_col3 = st.columns(3)
         with row7_col1:
-            booking_date = st.date_input("Booking Date", value=reservation["Booking Date"], key=f"{form_key}_booking")
+            booking_date = reservation["Booking Date"]
+            booking_date_display = booking_date.strftime("%Y-%m-%d") if booking_date else ""
+            st.text_input("Booking Date", value=booking_date_display, disabled=True, key=f"{form_key}_booking", help="Booking date is set automatically and cannot be edited")
         with row7_col2:
             invoice_no = st.text_input("Invoice No", value=reservation["Invoice No"], key=f"{form_key}_invoice")
         with row7_col3:
