@@ -1,4 +1,3 @@
-
 import streamlit as st
 import os
 from supabase import create_client, Client
@@ -78,7 +77,7 @@ def check_authentication():
             authenticated = False
            
             # Check if Admin hardcoded credential (bootstrap account)
-            if username == "Admin" and password == "Admin2024":
+            if username == "Admin" and password == "TieAdmin2024":
                 st.session_state.authenticated = True
                 st.session_state.username = "Admin"
                 st.session_state.role = "Admin"
