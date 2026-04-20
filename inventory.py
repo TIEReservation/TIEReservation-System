@@ -1,4 +1,4 @@
-# inventory.py – FIXED VERSION with single editable table
+# inventory.py – FIXED VERSION with single editable table + Monthly Report Download
 import streamlit as st
 from supabase import create_client, Client
 from datetime import date
@@ -6,6 +6,10 @@ import calendar
 import pandas as pd
 from typing import Any, List, Dict, Optional
 import logging
+import io
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
 # ────── Logging ──────
 logging.basicConfig(filename="app.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -81,7 +85,7 @@ PROPERTY_INVENTORY = {
     "Eden Beach Resort": {"all": ["101","102","103","201","202","Day Use 1","Day Use 2","No Show"],"three_bedroom":[]},
     "Le Terra": {"all": ["101","102","103","104","105","106","107","Day Use 1","Day Use 2","No Show"],"three_bedroom":[]},
     "La Coromandel Luxury": {"all": ["101","102","103","201","202","203","204","205","206","301","Day Use 1","Day Use 2","No Show"],"three_bedroom":[]},
-    "Happymates Forest Retreat": {"all": ["101","102","Day Use 1","Day Use 2","No Show"],"three_bedroom":[]}  
+    "Happymates Forest Retreat": {"all": ["101","102","Day Use 1","Day Use 2","No Show"],"three_bedroom":[]}
 }
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -109,16 +113,13 @@ def safe_float(v: Any, default: float = 0) -> float:
 # Highlighting Function
 # ═══════════════════════════════════════════════════════════════════════════
 def highlight_columns(df):
-    """Apply light gray background to Total, Advance, and Balance Mop columns"""
     styles = pd.DataFrame('', index=df.index, columns=df.columns)
-    
     if 'Total' in df.columns:
         styles['Total'] = 'background-color: #D3D3D3'
     if 'Advance' in df.columns:
         styles['Advance'] = 'background-color: #D3D3D3'
     if 'Balance Mop' in df.columns:
         styles['Balance Mop'] = 'background-color: #D3D3D3'
-    
     return styles
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -141,9 +142,8 @@ def load_properties() -> List[str]:
         logging.error(f"load_properties: {e}")
         return []
 
-@st.cache_data(ttl=600)  
+@st.cache_data(ttl=600)
 def load_combined_bookings(property: str, start_date: date, end_date: date) -> List[Dict]:
-    """Load bookings with correct date filtering."""
     prop = normalize_property(property)
     query_props = [prop] + reverse_mapping.get(prop, [])
     combined: List[Dict] = []
@@ -157,7 +157,6 @@ def load_combined_bookings(property: str, start_date: date, end_date: date) -> L
             .in_("plan_status", ["Confirmed", "Completed"])\
             .in_("payment_status", ["Partially Paid", "Fully Paid"])\
             .execute()
-        
         for r in q.data or []:
             norm = normalize_booking(r, is_online=False)
             if norm: combined.append(norm)
@@ -173,7 +172,6 @@ def load_combined_bookings(property: str, start_date: date, end_date: date) -> L
             .in_("booking_status", ["Confirmed", "Completed"])\
             .in_("payment_status", ["Partially Paid", "Fully Paid"])\
             .execute()
-        
         for r in q.data or []:
             norm = normalize_booking(r, is_online=True)
             if norm: combined.append(norm)
@@ -249,6 +247,7 @@ def normalize_booking(row: Dict, is_online: bool) -> Optional[Dict]:
             "advance_remarks": sanitize_string(row.get("advance_remarks", "")),
             "balance_remarks": sanitize_string(row.get("balance_remarks", "")),
             "accounts_status": sanitize_string(row.get("accounts_status", "Pending")).title(),
+            "ota_booking_id": sanitize_string(row.get("ota_booking_id", "")) if is_online else "",
             "db_id": identifier_str,
         }
     except Exception as e:
@@ -265,14 +264,14 @@ def assign_inventory_numbers(daily_bookings: List[Dict], property: str):
     assigned, over = [], []
     inv = PROPERTY_INVENTORY.get(property, {"all": []})["all"]
     inv_lookup = {i.strip().lower(): i for i in inv}
-    
+
     room_bookings = {}
     sorted_bookings = sorted(daily_bookings, key=lambda x: (x.get("check_in", ""), x.get("booking_id", "")))
 
     for b in sorted_bookings:
         raw_room = str(b.get("room_no", "") or "").strip()
         booking_id = b.get("booking_id", "Unknown")
-        
+
         if not raw_room:
             over.append(b)
             continue
@@ -287,7 +286,6 @@ def assign_inventory_numbers(daily_bookings: List[Dict], property: str):
                 is_overbooking = True
                 break
             room_name = inv_lookup[key]
-            
             if room_name in room_bookings and room_bookings[room_name] != booking_id:
                 is_overbooking = True
                 break
@@ -323,7 +321,7 @@ def assign_inventory_numbers(daily_bookings: List[Dict], property: str):
 # Build Table
 # ═══════════════════════════════════════════════════════════════════════════
 def create_inventory_table(assigned: List[Dict], over: List[Dict], prop: str, target_date: date):
-    visible_cols = ["Inventory No","Room No","Booking ID","Guest Name","Mobile No","Total Pax",
+    visible_cols = ["Inventory No","Room No","Booking ID","OTA Booking ID","Guest Name","Mobile No","Total Pax",
                     "Check In","Check Out","Days","MOB","Room Charges","GST","TAX","Total","Commission",
                     "Hotel Receivable","Per Night","Advance","Advance Mop","Balance","Balance Mop",
                     "Plan","Booking Status","Payment Status","Submitted by","Modified by","Remarks",
@@ -338,7 +336,7 @@ def create_inventory_table(assigned: List[Dict], over: List[Dict], prop: str, ta
         row["Inventory No"] = inventory_no
 
         match = next((a for a in assigned if str(a.get("assigned_room", "")).strip() == inventory_no.strip()), None)
-        
+
         if match:
             check_in_date = date.fromisoformat(match["check_in"])
             is_check_in_day = (target_date == check_in_date)
@@ -346,9 +344,9 @@ def create_inventory_table(assigned: List[Dict], over: List[Dict], prop: str, ta
 
             row["type"] = match["type"]
             row["db_id"] = str(match["db_id"]) if match["db_id"] else ""
-
             row["Room No"] = match["room_no"]
             row["Booking ID"] = match["booking_id"]
+            row["OTA Booking ID"] = match.get("ota_booking_id", "")
             row["Guest Name"] = match["guest_name"]
             row["Mobile No"] = match["mobile_no"]
             row["Total Pax"] = match["total_pax"]
@@ -465,288 +463,556 @@ def extract_stats_from_table(df: pd.DataFrame, mob_types: List[str]) -> Dict:
     }
 
     return {"mop": mop_data, "dtd": dtd}
-    
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Monthly Report Excel Generator — ONE single sheet
+# ═══════════════════════════════════════════════════════════════════════════
+def generate_monthly_report(props_list: List[str], year: int, month: int, bookings_by_prop: Dict[str, List[Dict]]) -> bytes:
+    """
+    All properties × all dates in a single sheet.
+    Columns: Property, Date, + all 30 booking columns.
+    Rows are color-coded by property for easy scanning.
+    """
+    month_dates = [date(year, month, d) for d in range(1, calendar.monthrange(year, month)[1] + 1)]
+    month_label = calendar.month_name[month]
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = f"{month_label} {year}"
+
+    # ── Styles ──
+    HEADER_FILL = PatternFill("solid", fgColor="1F4E79")
+    SUBHDR_FILL = PatternFill("solid", fgColor="2E75B6")
+    GRAY_FILL   = PatternFill("solid", fgColor="D3D3D3")
+    WHITE_FILL  = PatternFill("solid", fgColor="FFFFFF")
+    PROP_FILLS  = [
+        PatternFill("solid", fgColor="DAEEF3"),
+        PatternFill("solid", fgColor="EBF1DE"),
+        PatternFill("solid", fgColor="FDE9D9"),
+        PatternFill("solid", fgColor="E6E0EC"),
+        PatternFill("solid", fgColor="FDEBD0"),
+        PatternFill("solid", fgColor="D5E8D4"),
+    ]
+
+    HEADER_FONT = Font(bold=True, color="FFFFFF", name="Arial", size=10)
+    BOLD_FONT   = Font(bold=True, name="Arial", size=9)
+    NORMAL_FONT = Font(name="Arial", size=9)
+    BIG_TITLE   = Font(bold=True, name="Arial", size=15, color="1F4E79")
+
+    CENTER = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    LEFT   = Alignment(horizontal="left",   vertical="center", wrap_text=True)
+    thin   = Side(style="thin", color="BFBFBF")
+    BORDER = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    visible_cols = [
+        "Inventory No", "Room No", "Booking ID", "OTA Booking ID", "Guest Name", "Mobile No", "Total Pax",
+        "Check In", "Check Out", "Days", "MOB", "Room Charges", "GST", "TAX", "Total",
+        "Commission", "Hotel Receivable", "Per Night", "Advance", "Advance Mop",
+        "Balance", "Balance Mop", "Plan", "Booking Status", "Payment Status",
+        "Submitted by", "Modified by", "Remarks", "Advance Remarks", "Balance Remarks",
+        "Accounts Status"
+    ]
+    highlight_cols = {"Total", "Advance", "Balance Mop"}
+    all_cols = ["Property", "Date"] + visible_cols
+
+    col_widths = {
+        "Property": 26, "Date": 13,
+        "Inventory No": 12, "Room No": 10, "Booking ID": 14, "OTA Booking ID": 16, "Guest Name": 20,
+        "Mobile No": 14, "Total Pax": 9, "Check In": 11, "Check Out": 11,
+        "Days": 6, "MOB": 14, "Room Charges": 13, "GST": 10, "TAX": 10,
+        "Total": 12, "Commission": 12, "Hotel Receivable": 16, "Per Night": 11,
+        "Advance": 12, "Advance Mop": 14, "Balance": 12, "Balance Mop": 14,
+        "Plan": 14, "Booking Status": 15, "Payment Status": 15,
+        "Submitted by": 15, "Modified by": 15, "Remarks": 22,
+        "Advance Remarks": 22, "Balance Remarks": 22, "Accounts Status": 15,
+    }
+
+    # ── Row 1: Title ──
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(all_cols))
+    title_cell = ws.cell(row=1, column=1,
+                         value=f"All Properties — {month_label} {year} — Complete Booking Data")
+    title_cell.font      = BIG_TITLE
+    title_cell.alignment = CENTER
+    ws.row_dimensions[1].height = 30
+
+    # ── Row 2: Headers ──
+    for ci, col_name in enumerate(all_cols, start=1):
+        c = ws.cell(row=2, column=ci, value=col_name)
+        c.font      = HEADER_FONT
+        c.fill      = SUBHDR_FILL if col_name in highlight_cols else HEADER_FILL
+        c.alignment = CENTER
+        c.border    = BORDER
+        ws.column_dimensions[get_column_letter(ci)].width = col_widths.get(col_name, 14)
+    ws.row_dimensions[2].height = 28
+    ws.freeze_panes = "E3"   # freeze Property, Date, Inventory No, Room No
+
+    # ── Data rows ──
+    prop_fill_map = {p: PROP_FILLS[i % len(PROP_FILLS)] for i, p in enumerate(props_list)}
+    write_row = 3
+
+    for prop in props_list:
+        bookings  = bookings_by_prop.get(prop, [])
+        prop_fill = prop_fill_map[prop]
+
+        for day in month_dates:
+            daily = filter_bookings_for_day(bookings, day)
+            assigned, over = assign_inventory_numbers(daily, prop)
+            display_df, _ = create_inventory_table(assigned, over, prop, day)
+            day_label = day.strftime("%d-%b-%Y")
+
+            for df_row in display_df.itertuples(index=False):
+                row_data = list(df_row)
+                has_bk   = str(row_data[2]).strip() != ""  # Booking ID at index 2
+                full_row = [prop, day_label] + row_data
+
+                for ci, (col_name, value) in enumerate(zip(all_cols, full_row), start=1):
+                    cell           = ws.cell(row=write_row, column=ci, value=value)
+                    cell.font      = BOLD_FONT if has_bk else NORMAL_FONT
+                    cell.alignment = LEFT
+                    cell.border    = BORDER
+                    if col_name in highlight_cols:
+                        cell.fill = GRAY_FILL
+                    elif has_bk:
+                        cell.fill = prop_fill
+                    else:
+                        cell.fill = WHITE_FILL
+
+                write_row += 1
+
+    # ── Save ──
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # UI – Dashboard with single table (editable for Accounts Team)
 # ═══════════════════════════════════════════════════════════════════════════
 def show_daily_status():
     st.title("Daily Status Dashboard")
-    
-    if st.button("Refresh Data"):
+
+    if st.button("🔄 Refresh Data"):
         st.cache_data.clear()
         st.rerun()
 
     today = date.today()
-    year = st.selectbox("Year", list(range(today.year-5, today.year+6)), index=5)
-    month = st.selectbox("Month", list(range(1,13)), index=today.month-1)
-
     props = load_properties()
     if not props:
         st.info("No properties found.")
         return
 
     mob_types = list(mob_mapping.keys())
+    month_names = {i: calendar.month_name[i] for i in range(1, 13)}
 
-    for prop in props:
-        if st.checkbox(f"**{prop}**", key=f"expand_{prop}"):
-            month_dates = [date(year, month, d) for d in range(1, calendar.monthrange(year, month)[1]+1)]
-            start, end = month_dates[0], month_dates[-1]
-            bookings = load_combined_bookings(prop, start, end)
+    # ═══════════════════════════════════════════════════════
+    # SECTION 1 – Download Monthly Report
+    # ═══════════════════════════════════════════════════════
+    with st.expander("📥 Download Monthly Report", expanded=False):
+        st.markdown("#### Generate & Download Excel Reports")
+        st.caption("Select one or more properties and months. All data is combined into a single Excel file with two sheets: All Data + Summary.")
 
-            # MTD aggregation
-            mtd = {m: {"rooms":0,"value":0.0,"comm":0.0} for m in mob_types}
-            mtd_rooms = mtd_value = mtd_comm = 0
+        dl_col1, dl_col2, dl_col3 = st.columns([3, 2, 2])
 
-            for day in month_dates:
-                daily = filter_bookings_for_day(bookings, day)
-                st.markdown(f"### {prop} - {day.strftime('%b %d, %Y')}")
+        with dl_col1:
+            select_all_props = st.checkbox("Select All Properties", key="dl_select_all_props")
+            if select_all_props:
+                dl_props_selected = props
+                st.multiselect(
+                    "Properties",
+                    options=props,
+                    default=props,
+                    key="dl_props_multi",
+                    disabled=True,
+                    help="All properties selected"
+                )
+            else:
+                dl_props_selected = st.multiselect(
+                    "Properties",
+                    options=props,
+                    default=[],
+                    key="dl_props_multi",
+                    placeholder="Choose one or more properties…"
+                )
 
-                assigned, over = assign_inventory_numbers(daily, prop)
-                display_df, full_df = create_inventory_table(assigned, over, prop, day)
+        with dl_col2:
+            dl_year = st.selectbox(
+                "Year",
+                options=list(range(today.year - 5, today.year + 6)),
+                index=5,
+                key="dl_year"
+            )
 
-                if daily:
-                    is_accounts_team = st.session_state.get('role', '') == "Accounts Team"
+        with dl_col3:
+            dl_month_mode = st.radio(
+                "Month Selection",
+                options=["Single Month", "Multiple Months"],
+                key="dl_month_mode",
+                horizontal=True
+            )
 
-                    # ✅ Single table with editable fields for Accounts Team
-                    st.subheader("📊 Booking Overview")
-                    
-                    if is_accounts_team:
-                        # Editable table for Accounts Team with highlighted AND frozen columns
-                        col_config = {
-                            "Inventory No": st.column_config.TextColumn(disabled=True, pinned=True),
-                            "Room No": st.column_config.TextColumn(disabled=True, pinned=True),
-                            "Booking ID": st.column_config.TextColumn(disabled=True, pinned=True),
-                            "Guest Name": st.column_config.TextColumn(disabled=True, pinned=True),
-                            "Mobile No": st.column_config.TextColumn(disabled=True),
-                            "Total Pax": st.column_config.NumberColumn(disabled=True),
-                            "Check In": st.column_config.TextColumn(disabled=True),
-                            "Check Out": st.column_config.TextColumn(disabled=True),
-                            "Days": st.column_config.NumberColumn(disabled=True),
-                            "MOB": st.column_config.TextColumn(disabled=True),
-                            "Room Charges": st.column_config.TextColumn(disabled=True),
-                            "GST": st.column_config.TextColumn(disabled=True),
-                            "TAX": st.column_config.TextColumn(disabled=True),
-                            "Total": st.column_config.TextColumn("💰 Total", disabled=True),
-                            "Commission": st.column_config.TextColumn(disabled=True),
-                            "Hotel Receivable": st.column_config.TextColumn(disabled=True),
-                            "Per Night": st.column_config.TextColumn(disabled=True),
-                            "Advance": st.column_config.TextColumn("💳 Advance", disabled=True),
-                            "Advance Mop": st.column_config.TextColumn(disabled=True),
-                            "Balance": st.column_config.TextColumn(disabled=True),
-                            "Balance Mop": st.column_config.TextColumn("💵 Balance Mop", disabled=True),
-                            "Plan": st.column_config.TextColumn(disabled=True),
-                            "Booking Status": st.column_config.TextColumn(disabled=True),
-                            "Payment Status": st.column_config.TextColumn(disabled=True),
-                            "Submitted by": st.column_config.TextColumn(disabled=True),
-                            "Modified by": st.column_config.TextColumn(disabled=True),
-                            "Remarks": st.column_config.TextColumn(disabled=True),
-                            "Advance Remarks": st.column_config.TextColumn("✏️ Advance Remarks", disabled=False, max_chars=500),
-                            "Balance Remarks": st.column_config.TextColumn("✏️ Balance Remarks", disabled=False, max_chars=500),
-                            "Accounts Status": st.column_config.SelectboxColumn("✏️ Accounts Status", options=["Pending", "Completed"], disabled=False),
-                        }
-                    
-                        unique_key = f"{prop.replace(' ', '_')}_{day.strftime('%Y%m%d')}"
-                    
-                        # Create a copy of dataframe with background colors applied via CSS
-                        def apply_highlight_to_df(df):
-                            # Create a styled dataframe copy
-                            def highlight_row(row):
-                                styles = [''] * len(row)
-                                col_names = df.columns.tolist()
-                                if 'Total' in col_names:
-                                    styles[col_names.index('Total')] = 'background-color: #D3D3D3'
-                                if 'Advance' in col_names:
-                                    styles[col_names.index('Advance')] = 'background-color: #D3D3D3'
-                                if 'Balance Mop' in col_names:
-                                    styles[col_names.index('Balance Mop')] = 'background-color: #D3D3D3'
-                                return styles
-                            
-                            return df.style.apply(highlight_row, axis=1)
-                    
-                        styled_df = apply_highlight_to_df(display_df)
-                    
-                        with st.form(key=f"form_{unique_key}"):
-                            edited = st.data_editor(
-                                styled_df,
-                                column_config=col_config,
-                                hide_index=True,
-                                use_container_width=True,
-                                num_rows="fixed",
-                                key=f"editor_{unique_key}",
-                                height=400
+        if dl_month_mode == "Single Month":
+            dl_month = st.selectbox(
+                "Month",
+                options=list(range(1, 13)),
+                format_func=lambda m: month_names[m],
+                index=today.month - 1,
+                key="dl_month_single"
+            )
+            months_to_download = [dl_month]
+        else:
+            select_all_months = st.checkbox("Select All Months", key="dl_select_all_months")
+            if select_all_months:
+                months_to_download = list(range(1, 13))
+                st.multiselect(
+                    "Months",
+                    options=list(range(1, 13)),
+                    default=list(range(1, 13)),
+                    format_func=lambda m: month_names[m],
+                    key="dl_months_multi",
+                    disabled=True,
+                    help="All months selected"
+                )
+            else:
+                dl_months_selected = st.multiselect(
+                    "Months",
+                    options=list(range(1, 13)),
+                    format_func=lambda m: month_names[m],
+                    default=[today.month],
+                    key="dl_months_multi",
+                    placeholder="Choose one or more months…"
+                )
+                months_to_download = dl_months_selected if dl_months_selected else []
+
+        # ── Summary of what will be generated ──
+        if dl_props_selected and months_to_download:
+            if len(months_to_download) == 1:
+                m = months_to_download[0]
+                month_label_dl = month_names[m]
+                prop_count = len(dl_props_selected)
+                st.info(
+                    f"**1 combined report** will be generated for **{prop_count}** "
+                    f"propert{'y' if prop_count == 1 else 'ies'} — **{month_label_dl} {dl_year}**. "
+                    f"2 sheets: All Data + Summary."
+                )
+                if st.button(f"📥 Generate {month_label_dl} {dl_year} Report", key="dl_generate_btn", type="primary"):
+                    with st.spinner(f"Generating report for {prop_count} {'property' if prop_count == 1 else 'properties'}…"):
+                        try:
+                            start_d = date(dl_year, m, 1)
+                            end_d   = date(dl_year, m, calendar.monthrange(dl_year, m)[1])
+                            bookings_by_prop = {}
+                            for dl_prop in dl_props_selected:
+                                bookings_by_prop[dl_prop] = load_combined_bookings(dl_prop, start_d, end_d)
+                            report_bytes = generate_monthly_report(dl_props_selected, dl_year, m, bookings_by_prop)
+                            prop_tag  = "All_Properties" if prop_count > 1 else dl_props_selected[0].replace(' ', '_')
+                            filename  = f"{prop_tag}_{month_label_dl}_{dl_year}_Report.xlsx"
+                            st.download_button(
+                                label=f"⬇️ Download {month_label_dl} {dl_year} — {prop_count} {'Property' if prop_count == 1 else 'Properties'}",
+                                data=report_bytes,
+                                file_name=filename,
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key="dl_single_save"
                             )
-                            
-                            submitted = st.form_submit_button("💾 Save Changes", use_container_width=False)
-                    
-                            if submitted:
-                                updates = {}
-                                for i in range(len(edited)):
-                                    er = edited.iloc[i]
-                                    fr = full_df.iloc[i]
-                                    
-                                    bid = str(er.get("Booking ID", "")).strip()
-                                    if not bid:
-                                        continue
-                    
-                                    db_id = str(fr.get("db_id", "")).strip()
-                                    btype = str(fr.get("type", "")).strip()
-                    
-                                    if not db_id or not btype:
-                                        continue
-                    
-                                    update_key = f"{bid}_{i}"
-                                    
-                                    advance_remarks = str(er.get("Advance Remarks", "") or "").strip()
-                                    balance_remarks = str(er.get("Balance Remarks", "") or "").strip()
-                                    accounts_status = str(er.get("Accounts Status", "Pending")).strip()
-                                    
-                                    updates[update_key] = {
-                                        "advance_remarks": advance_remarks if advance_remarks else None,
-                                        "balance_remarks": balance_remarks if balance_remarks else None,
-                                        "accounts_status": accounts_status,
-                                        "type": btype,
-                                        "db_id": db_id,
-                                        "booking_id": bid
-                                    }
-                    
-                                success = error = 0
-                                error_details = []
-                                processed_bookings = set()
-                    
-                                for update_key, data in updates.items():
-                                    bid = data["booking_id"]
-                                    
-                                    if bid in processed_bookings:
-                                        continue
-                                    
-                                    processed_bookings.add(bid)
-                                    
-                                    update_data = {
-                                        "advance_remarks": data["advance_remarks"],
-                                        "balance_remarks": data["balance_remarks"],
-                                        "accounts_status": data["accounts_status"],
-                                    }
-                                    
-                                    update_data = {k: v for k, v in update_data.items() if v is not None}
-                                    
-                                    logging.info(f"Saving {data['type']} booking {bid} | Key: {data['db_id'] if data['type']=='online' else bid} | Data: {update_data}")
-                    
-                                    try:
-                                        if data["type"] == "online":
-                                            res = supabase.table("online_reservations").update(update_data).eq("id", data["db_id"]).execute()
-                                        else:
-                                            res = supabase.table("reservations").update(update_data).eq("booking_id", bid).execute()
-                    
-                                        if res.data:
-                                            success += 1
-                                            logging.info(f"Successfully updated {bid}")
-                                        else:
-                                            error += 1
-                                            error_details.append(f"{bid}: No rows updated")
-                                            logging.warning(f"No rows updated for {bid}")
-                                    except Exception as e:
-                                        error += 1
-                                        error_details.append(f"{bid}: {str(e)}")
-                                        logging.error(f"Save failed {bid}: {e}")
-                    
-                                if success:
-                                    st.success(f"✅ Saved {success} booking(s)!")
-                                    st.cache_data.clear()
-                                    st.rerun()
-                                if error:
-                                    st.error(f"⚠️ {error} failed")
-                                    with st.expander("Error Details"):
-                                        for msg in error_details:
-                                            st.code(msg)
-                    else:
-                        # Read-only table for non-Accounts Team with frozen columns AND highlighting
-                        col_config_readonly = {
-                            "Inventory No": st.column_config.TextColumn(disabled=True, pinned=True),
-                            "Room No": st.column_config.TextColumn(disabled=True, pinned=True),
-                            "Booking ID": st.column_config.TextColumn(disabled=True, pinned=True),
-                            "Guest Name": st.column_config.TextColumn(disabled=True, pinned=True),
-                        }
-                        
-                        styled_display = display_df.style.apply(highlight_columns, axis=None)
-                        st.dataframe(styled_display, column_config=col_config_readonly, use_container_width=True, height=400, hide_index=True)
-                        
-                    st.markdown("---")
+                            st.success(f"✅ Report ready! {prop_count} {'property' if prop_count == 1 else 'properties'} × {calendar.monthrange(dl_year, m)[1]} days.")
+                        except Exception as e:
+                            st.error(f"Failed: {e}")
+                            logging.error(f"Report error {dl_year}/{m}: {e}")
+            else:
+                # Multiple months → one file per month, each with all selected properties
+                prop_count = len(dl_props_selected)
+                st.info(
+                    f"**{len(months_to_download)} combined reports** will be generated "
+                    f"(one per month, each containing **{prop_count}** {'property' if prop_count == 1 else 'properties'}, "
+                    f"2 sheets each: All Data + Summary)."
+                )
+                if st.button(f"📥 Generate {len(months_to_download)} Monthly Reports", key="dl_generate_btn", type="primary"):
+                    for m in months_to_download:
+                        month_label_dl = month_names[m]
+                        start_d = date(dl_year, m, 1)
+                        end_d   = date(dl_year, m, calendar.monthrange(dl_year, m)[1])
+                        with st.spinner(f"Generating {month_label_dl} {dl_year}…"):
+                            try:
+                                bookings_by_prop = {}
+                                for dl_prop in dl_props_selected:
+                                    bookings_by_prop[dl_prop] = load_combined_bookings(dl_prop, start_d, end_d)
+                                report_bytes = generate_monthly_report(dl_props_selected, dl_year, m, bookings_by_prop)
+                                prop_tag  = "All_Properties" if prop_count > 1 else dl_props_selected[0].replace(' ', '_')
+                                filename  = f"{prop_tag}_{month_label_dl}_{dl_year}_Report.xlsx"
+                                st.download_button(
+                                    label=f"⬇️ {month_label_dl} {dl_year} — {prop_count} {'Property' if prop_count == 1 else 'Properties'}",
+                                    data=report_bytes,
+                                    file_name=filename,
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    key=f"dl_multi_save_{m}"
+                                )
+                            except Exception as e:
+                                st.error(f"❌ Failed for {month_label_dl}: {e}")
+                                logging.error(f"Report error {m}/{dl_year}: {e}")
+        else:
+            st.warning("Please select at least one property and one month to enable downloads.")
 
-                    # ✅ Extract stats and display tables
-                    stats = extract_stats_from_table(display_df, mob_types)
-                    dtd = stats["dtd"]
-                    mop_data = stats["mop"]
+    st.markdown("---")
 
-                    # Accumulate MTD
-                    for m in mob_types:
-                        mtd[m]["rooms"] += dtd[m]["rooms"]
-                        mtd[m]["value"] += dtd[m]["value"]
-                        mtd[m]["comm"] += dtd[m]["comm"]
-                    
-                    mtd_rooms += dtd["Total"]["rooms"]
-                    mtd_value += dtd["Total"]["value"]
-                    mtd_comm += dtd["Total"]["comm"]
+    # ═══════════════════════════════════════════════════════
+    # SECTION 2 – Daily Status View
+    # ═══════════════════════════════════════════════════════
+    st.markdown("#### 📋 Daily Status View")
 
-                    # DTD Table
-                    dtd_df = pd.DataFrame([
-                        {"MOB": m, "D.T.D Rooms": d["rooms"], "D.T.D Value": f"₹{d['value']:,.2f}",
-                         "D.T.D ARR": f"₹{d['arr']:,.2f}", "D.T.D Comm": f"₹{d['comm']:,.2f}"} 
-                        for m, d in dtd.items() if m != "Total"
-                    ] + [{"MOB": "Total", "D.T.D Rooms": dtd["Total"]["rooms"], 
-                          "D.T.D Value": f"₹{dtd['Total']['value']:,.2f}",
-                          "D.T.D ARR": f"₹{dtd['Total']['arr']:,.2f}", 
-                          "D.T.D Comm": f"₹{dtd['Total']['comm']:,.2f}"}],
-                        columns=["MOB","D.T.D Rooms","D.T.D Value","D.T.D ARR","D.T.D Comm"])
+    view_col1, view_col2, view_col3 = st.columns([3, 2, 2])
+    with view_col1:
+        selected_prop = st.selectbox(
+            "Property",
+            options=["— Select Property —"] + props,
+            key="view_prop"
+        )
+    with view_col2:
+        year = st.selectbox(
+            "Year",
+            options=list(range(today.year - 5, today.year + 6)),
+            index=5,
+            key="view_year"
+        )
+    with view_col3:
+        month = st.selectbox(
+            "Month",
+            options=list(range(1, 13)),
+            format_func=lambda m: month_names[m],
+            index=today.month - 1,
+            key="view_month"
+        )
 
-                    # MOP Table
-                    mop_df = pd.DataFrame([{"MOP": m, "Amount": f"₹{v:,.2f}"} for m, v in mop_data.items()], 
-                                         columns=["MOP", "Amount"])
+    if not selected_prop or selected_prop == "— Select Property —":
+        st.info("👆 Select a property above to view daily status.")
+        return
 
-                    # MTD Table
-                    mtd_df = pd.DataFrame([
-                        {"MOB": m, "M.T.D Rooms": mtd[m]["rooms"], "M.T.D Value": f"₹{mtd[m]['value']:,.2f}",
-                         "M.T.D ARR": f"₹{mtd[m]['value']/mtd[m]['rooms']:,.2f}" if mtd[m]["rooms"] > 0 else "₹0.00",
-                         "M.T.D Comm": f"₹{mtd[m]['comm']:,.2f}"} for m in mob_types
-                    ] + [{"MOB": "Total", "M.T.D Rooms": mtd_rooms, "M.T.D Value": f"₹{mtd_value:,.2f}",
-                          "M.T.D ARR": f"₹{mtd_value/mtd_rooms:,.2f}" if mtd_rooms > 0 else "₹0.00",
-                          "M.T.D Comm": f"₹{mtd_comm:,.2f}"}], 
-                        columns=["MOB","M.T.D Rooms","M.T.D Value","M.T.D ARR","M.T.D Comm"])
+    prop = selected_prop
+    month_dates = [date(year, month, d) for d in range(1, calendar.monthrange(year, month)[1] + 1)]
+    start, end = month_dates[0], month_dates[-1]
+    bookings = load_combined_bookings(prop, start, end)
 
-                    # Summary Stats
-                    total_inventory = len([i for i in PROPERTY_INVENTORY.get(prop,{}).get("all",[]) if not i.startswith(("Day Use","No Show"))])
-                    occ_pct = (dtd["Total"]["rooms"] / total_inventory * 100) if total_inventory else 0.0
-                    mtd_occ_pct = (mtd_rooms / (total_inventory * day.day) * 100) if total_inventory and day.day > 0 else 0.0
+    # MTD aggregation
+    mtd = {m: {"rooms": 0, "value": 0.0, "comm": 0.0} for m in mob_types}
+    mtd_rooms = mtd_value = mtd_comm = 0
 
-                    summary = {
-                        "Rooms Sold": dtd["Total"]["rooms"],
-                        "Hotel Revenue": f"₹{dtd['Total']['value']:,.2f}",
-                        "ARR": f"₹{dtd['Total']['arr']:,.2f}",
-                        "Occupancy": f"{occ_pct:.1f}%",
-                        "Total Pax": dtd["Total"]["pax"],
-                        "Total Rooms": total_inventory,
-                        "GST Paid": f"₹{dtd['Total']['gst']:,.2f}",
-                        "TAX Paid": f"₹{dtd['Total']['tax']:,.2f}",
-                        "Commission Paid": f"₹{dtd['Total']['comm']:,.2f}",
-                        "MTD Occupancy": f"{mtd_occ_pct:.1f}%",
-                        "MTD Revenue": f"₹{mtd_value:,.2f}",
-                    }
+    for day in month_dates:
+        daily = filter_bookings_for_day(bookings, day)
+        st.markdown(f"### {prop} — {day.strftime('%d %B %Y')}")
 
-                    # Display Tables in 4 columns
-                    c1, c2, c3, c4 = st.columns(4)
-                    with c1: 
-                        st.subheader("MOP")
-                        st.dataframe(mop_df, use_container_width=True, hide_index=True)
-                    with c2: 
-                        st.subheader("Day Revenue")
-                        st.dataframe(dtd_df, use_container_width=True, hide_index=True)
-                    with c3: 
-                        st.subheader("Month Revenue")
-                        st.dataframe(mtd_df, use_container_width=True, hide_index=True)
-                    with c4:
-                        st.subheader("Summary")
-                        st.dataframe(pd.DataFrame([{"Metric": k, "Value": v} for k, v in summary.items()]), use_container_width=True, hide_index=True)
-                else:
-                    st.info("No active bookings.")
+        assigned, over = assign_inventory_numbers(daily, prop)
+        display_df, full_df = create_inventory_table(assigned, over, prop, day)
+
+        if daily:
+            is_accounts_team = st.session_state.get('role', '') == "Accounts Team"
+            st.subheader("📊 Booking Overview")
+
+            if is_accounts_team:
+                col_config = {
+                    "Inventory No": st.column_config.TextColumn(disabled=True, pinned=True),
+                    "Room No": st.column_config.TextColumn(disabled=True, pinned=True),
+                    "Booking ID": st.column_config.TextColumn(disabled=True, pinned=True),
+                    "Guest Name": st.column_config.TextColumn(disabled=True, pinned=True),
+                    "Mobile No": st.column_config.TextColumn(disabled=True),
+                    "Total Pax": st.column_config.NumberColumn(disabled=True),
+                    "Check In": st.column_config.TextColumn(disabled=True),
+                    "Check Out": st.column_config.TextColumn(disabled=True),
+                    "Days": st.column_config.NumberColumn(disabled=True),
+                    "MOB": st.column_config.TextColumn(disabled=True),
+                    "Room Charges": st.column_config.TextColumn(disabled=True),
+                    "GST": st.column_config.TextColumn(disabled=True),
+                    "TAX": st.column_config.TextColumn(disabled=True),
+                    "Total": st.column_config.TextColumn("💰 Total", disabled=True),
+                    "Commission": st.column_config.TextColumn(disabled=True),
+                    "Hotel Receivable": st.column_config.TextColumn(disabled=True),
+                    "Per Night": st.column_config.TextColumn(disabled=True),
+                    "Advance": st.column_config.TextColumn("💳 Advance", disabled=True),
+                    "Advance Mop": st.column_config.TextColumn(disabled=True),
+                    "Balance": st.column_config.TextColumn(disabled=True),
+                    "Balance Mop": st.column_config.TextColumn("💵 Balance Mop", disabled=True),
+                    "Plan": st.column_config.TextColumn(disabled=True),
+                    "Booking Status": st.column_config.TextColumn(disabled=True),
+                    "Payment Status": st.column_config.TextColumn(disabled=True),
+                    "Submitted by": st.column_config.TextColumn(disabled=True),
+                    "Modified by": st.column_config.TextColumn(disabled=True),
+                    "Remarks": st.column_config.TextColumn(disabled=True),
+                    "Advance Remarks": st.column_config.TextColumn("✏️ Advance Remarks", disabled=False, max_chars=500),
+                    "Balance Remarks": st.column_config.TextColumn("✏️ Balance Remarks", disabled=False, max_chars=500),
+                    "Accounts Status": st.column_config.SelectboxColumn("✏️ Accounts Status", options=["Pending", "Completed"], disabled=False),
+                }
+
+                unique_key = f"{prop.replace(' ', '_')}_{day.strftime('%Y%m%d')}"
+
+                def apply_highlight_to_df(df):
+                    def highlight_row(row):
+                        styles = [''] * len(row)
+                        col_names = df.columns.tolist()
+                        if 'Total' in col_names:
+                            styles[col_names.index('Total')] = 'background-color: #D3D3D3'
+                        if 'Advance' in col_names:
+                            styles[col_names.index('Advance')] = 'background-color: #D3D3D3'
+                        if 'Balance Mop' in col_names:
+                            styles[col_names.index('Balance Mop')] = 'background-color: #D3D3D3'
+                        return styles
+                    return df.style.apply(highlight_row, axis=1)
+
+                styled_df = apply_highlight_to_df(display_df)
+
+                with st.form(key=f"form_{unique_key}"):
+                    edited = st.data_editor(
+                        styled_df,
+                        column_config=col_config,
+                        hide_index=True,
+                        use_container_width=True,
+                        num_rows="fixed",
+                        key=f"editor_{unique_key}",
+                        height=400
+                    )
+                    submitted = st.form_submit_button("💾 Save Changes", use_container_width=False)
+
+                    if submitted:
+                        updates = {}
+                        for i in range(len(edited)):
+                            er = edited.iloc[i]
+                            fr = full_df.iloc[i]
+                            bid = str(er.get("Booking ID", "")).strip()
+                            if not bid: continue
+                            db_id = str(fr.get("db_id", "")).strip()
+                            btype = str(fr.get("type", "")).strip()
+                            if not db_id or not btype: continue
+                            update_key = f"{bid}_{i}"
+                            advance_remarks = str(er.get("Advance Remarks", "") or "").strip()
+                            balance_remarks = str(er.get("Balance Remarks", "") or "").strip()
+                            accounts_status = str(er.get("Accounts Status", "Pending")).strip()
+                            updates[update_key] = {
+                                "advance_remarks": advance_remarks if advance_remarks else None,
+                                "balance_remarks": balance_remarks if balance_remarks else None,
+                                "accounts_status": accounts_status,
+                                "type": btype,
+                                "db_id": db_id,
+                                "booking_id": bid
+                            }
+
+                        success = error = 0
+                        error_details = []
+                        processed_bookings = set()
+
+                        for update_key, data in updates.items():
+                            bid = data["booking_id"]
+                            if bid in processed_bookings: continue
+                            processed_bookings.add(bid)
+                            update_data = {
+                                "advance_remarks": data["advance_remarks"],
+                                "balance_remarks": data["balance_remarks"],
+                                "accounts_status": data["accounts_status"],
+                            }
+                            update_data = {k: v for k, v in update_data.items() if v is not None}
+                            logging.info(f"Saving {data['type']} booking {bid} | Data: {update_data}")
+                            try:
+                                if data["type"] == "online":
+                                    res = supabase.table("online_reservations").update(update_data).eq("id", data["db_id"]).execute()
+                                else:
+                                    res = supabase.table("reservations").update(update_data).eq("booking_id", bid).execute()
+                                if res.data:
+                                    success += 1
+                                else:
+                                    error += 1
+                                    error_details.append(f"{bid}: No rows updated")
+                            except Exception as e:
+                                error += 1
+                                error_details.append(f"{bid}: {str(e)}")
+                                logging.error(f"Save failed {bid}: {e}")
+
+                        if success:
+                            st.success(f"✅ Saved {success} booking(s)!")
+                            st.cache_data.clear()
+                            st.rerun()
+                        if error:
+                            st.error(f"⚠️ {error} failed")
+                            with st.expander("Error Details"):
+                                for msg in error_details:
+                                    st.code(msg)
+            else:
+                col_config_readonly = {
+                    "Inventory No": st.column_config.TextColumn(disabled=True, pinned=True),
+                    "Room No": st.column_config.TextColumn(disabled=True, pinned=True),
+                    "Booking ID": st.column_config.TextColumn(disabled=True, pinned=True),
+                    "Guest Name": st.column_config.TextColumn(disabled=True, pinned=True),
+                }
+                styled_display = display_df.style.apply(highlight_columns, axis=None)
+                st.dataframe(styled_display, column_config=col_config_readonly, use_container_width=True, height=400, hide_index=True)
+
+            st.markdown("---")
+
+            stats = extract_stats_from_table(display_df, mob_types)
+            dtd = stats["dtd"]
+            mop_data = stats["mop"]
+
+            for m in mob_types:
+                mtd[m]["rooms"] += dtd[m]["rooms"]
+                mtd[m]["value"] += dtd[m]["value"]
+                mtd[m]["comm"] += dtd[m]["comm"]
+
+            mtd_rooms += dtd["Total"]["rooms"]
+            mtd_value += dtd["Total"]["value"]
+            mtd_comm += dtd["Total"]["comm"]
+
+            dtd_df = pd.DataFrame([
+                {"MOB": m, "D.T.D Rooms": d["rooms"], "D.T.D Value": f"₹{d['value']:,.2f}",
+                 "D.T.D ARR": f"₹{d['arr']:,.2f}", "D.T.D Comm": f"₹{d['comm']:,.2f}"}
+                for m, d in dtd.items() if m != "Total"
+            ] + [{"MOB": "Total", "D.T.D Rooms": dtd["Total"]["rooms"],
+                  "D.T.D Value": f"₹{dtd['Total']['value']:,.2f}",
+                  "D.T.D ARR": f"₹{dtd['Total']['arr']:,.2f}",
+                  "D.T.D Comm": f"₹{dtd['Total']['comm']:,.2f}"}],
+                columns=["MOB", "D.T.D Rooms", "D.T.D Value", "D.T.D ARR", "D.T.D Comm"])
+
+            mop_df = pd.DataFrame([{"MOP": m, "Amount": f"₹{v:,.2f}"} for m, v in mop_data.items()],
+                                  columns=["MOP", "Amount"])
+
+            mtd_df = pd.DataFrame([
+                {"MOB": m, "M.T.D Rooms": mtd[m]["rooms"], "M.T.D Value": f"₹{mtd[m]['value']:,.2f}",
+                 "M.T.D ARR": f"₹{mtd[m]['value'] / mtd[m]['rooms']:,.2f}" if mtd[m]["rooms"] > 0 else "₹0.00",
+                 "M.T.D Comm": f"₹{mtd[m]['comm']:,.2f}"} for m in mob_types
+            ] + [{"MOB": "Total", "M.T.D Rooms": mtd_rooms, "M.T.D Value": f"₹{mtd_value:,.2f}",
+                  "M.T.D ARR": f"₹{mtd_value / mtd_rooms:,.2f}" if mtd_rooms > 0 else "₹0.00",
+                  "M.T.D Comm": f"₹{mtd_comm:,.2f}"}],
+                columns=["MOB", "M.T.D Rooms", "M.T.D Value", "M.T.D ARR", "M.T.D Comm"])
+
+            total_inventory = len([i for i in PROPERTY_INVENTORY.get(prop, {}).get("all", [])
+                                   if not i.startswith(("Day Use", "No Show"))])
+            occ_pct = (dtd["Total"]["rooms"] / total_inventory * 100) if total_inventory else 0.0
+            mtd_occ_pct = (mtd_rooms / (total_inventory * day.day) * 100) if total_inventory and day.day > 0 else 0.0
+
+            summary = {
+                "Rooms Sold": dtd["Total"]["rooms"],
+                "Hotel Revenue": f"₹{dtd['Total']['value']:,.2f}",
+                "ARR": f"₹{dtd['Total']['arr']:,.2f}",
+                "Occupancy": f"{occ_pct:.1f}%",
+                "Total Pax": dtd["Total"]["pax"],
+                "Total Rooms": total_inventory,
+                "GST Paid": f"₹{dtd['Total']['gst']:,.2f}",
+                "TAX Paid": f"₹{dtd['Total']['tax']:,.2f}",
+                "Commission Paid": f"₹{dtd['Total']['comm']:,.2f}",
+                "MTD Occupancy": f"{mtd_occ_pct:.1f}%",
+                "MTD Revenue": f"₹{mtd_value:,.2f}",
+            }
+
+            c1, c2, c3, c4 = st.columns(4)
+            with c1:
+                st.subheader("MOP")
+                st.dataframe(mop_df, use_container_width=True, hide_index=True)
+            with c2:
+                st.subheader("Day Revenue")
+                st.dataframe(dtd_df, use_container_width=True, hide_index=True)
+            with c3:
+                st.subheader("Month Revenue")
+                st.dataframe(mtd_df, use_container_width=True, hide_index=True)
+            with c4:
+                st.subheader("Summary")
+                st.dataframe(pd.DataFrame([{"Metric": k, "Value": v} for k, v in summary.items()]),
+                             use_container_width=True, hide_index=True)
+        else:
+            st.info("No active bookings.")
 
 if __name__ == "__main__":
     show_daily_status()
