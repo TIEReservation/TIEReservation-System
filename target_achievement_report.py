@@ -116,6 +116,24 @@ MONTHLY_TARGETS = {
         "Le Pondy Beachside": 130000,
         "Le Royce Villa": 120000,
     },
+    "April 2026": {
+        "La Millionaire Resort": 1000000,
+        "Le Poshe Beach view": 495495,
+        "Le Park Resort": 600000,
+        "La Tamara Luxury": 974420,
+        "Le Poshe Luxury": 731312,
+        "Le Poshe Suite": 303960,
+        "Eden Beach Resort": 306041,
+        "La Antilia Luxury": 650413,
+        "La Coromandel Luxury": 550000,
+        "La Tamara Suite": 362165,
+        "Villa Shakti": 449434,
+        "La Paradise Luxury": 321315,
+        "La Villa Heritage": 295873,
+        "La Paradise Residency": 358496,
+        "Le Pondy Beachside": 97507,
+        "Le Royce Villa": 75845,
+    },
 }
 # -------------------------- Property Inventory --------------------------
 PROPERTY_INVENTORY = {
@@ -417,8 +435,8 @@ def show_target_achievement_report():
     # Month Selector
     selected_month = st.selectbox(
         "Select Month",
-        options=["December 2025", "January 2026", "February 2026", "March 2026"],
-        index=2  # Default to February 2026
+        options=["December 2025", "January 2026", "February 2026", "March 2026", "April 2026"],
+        index=4  # Default to April 2026
     )
 
     current_date = date.today()
@@ -430,8 +448,8 @@ def show_target_achievement_report():
         report_year, report_month = 2026, 1
     elif selected_month == "February 2026":
         report_year, report_month = 2026, 2
-    else:  # March 2026
-        report_year, report_month = 2026, 3
+    else:  # April 2026
+        report_year, report_month = 2026, 4
     
     # Calculate balance days
     if current_date.year == report_year and current_date.month == report_month:
