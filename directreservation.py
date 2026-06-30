@@ -3,13 +3,17 @@ import pandas as pd
 import plotly.express as px
 from datetime import datetime, date, timedelta
 from supabase import create_client, Client
+import os
 
 # Initialize Supabase client
 try:
     supabase: Client = create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
-except KeyError as e:
-    st.error(f"Missing Supabase secret: {e}. Please check Streamlit Cloud secrets configuration.")
-    st.stop()
+except Exception:
+    try:
+        supabase: Client = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_KEY"])
+    except Exception as e:
+        st.error(f"Missing Supabase configuration: {e}. Please check Streamlit Cloud secrets/environment configuration.")
+        st.stop()
 
 def load_property_room_map():
     """
