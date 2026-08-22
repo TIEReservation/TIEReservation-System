@@ -193,6 +193,36 @@ MONTHLY_TARGETS = {
         "La Paradise Residency": 315000,
         "Le Royce Villa": 90000,
     },
+    "August 2026": {
+        "Le Park Resort":  700000,
+        "La Tamara Luxury": 1130000,
+        "Le Poshe Luxury": 750000,
+        "Le Poshe Suite": 360000,
+        "Eden Beach Resort": 390000,
+        "La Antilia Luxury": 595000,
+        "La Coromandel Luxury": 500000,
+        "La Tamara Suite": 460000,
+        "Villa Shakti": 590000,
+        "La Paradise Luxury": 310000,
+        "La Villa Heritage": 290000,
+        "La Paradise Residency": 380000,
+        "Le Royce Villa": 90000,
+    },
+    "September 2026": {
+        "Le Park Resort":  650000,
+        "La Tamara Luxury": 1090000,
+        "Le Poshe Luxury": 730000,
+        "Le Poshe Suite": 350000,
+        "Eden Beach Resort": 370000,
+        "La Antilia Luxury": 580000,
+        "La Coromandel Luxury": 490000,
+        "La Tamara Suite": 450000,
+        "Villa Shakti": 550000,
+        "La Paradise Luxury": 300000,
+        "La Villa Heritage": 280000,
+        "La Paradise Residency": 365000,
+        "Le Royce Villa": 90000,
+    },
 }
 # -------------------------- Property Inventory --------------------------
 PROPERTY_INVENTORY = {
@@ -502,8 +532,8 @@ def show_target_achievement_report():
     # Month Selector
     selected_month = st.selectbox(
         "Select Month",
-        options=["December 2025", "January 2026", "February 2026", "March 2026", "April 2026", "May 2026", "June 2026", "July 2026"],
-        index=7  # Default to July 2026
+        options=["December 2025", "January 2026", "February 2026", "March 2026", "April 2026", "May 2026", "June 2026", "July 2026", "August 2026", "September 2026"],
+        index=9  # Default to September 2026
     )
 
     current_date = date.today()
@@ -523,8 +553,12 @@ def show_target_achievement_report():
         report_year, report_month = 2026, 5
     elif selected_month == "June 2026":
         report_year, report_month = 2026, 6
-    else:  # July 2026
+    elif selected_month == "July 2026":
         report_year, report_month = 2026, 7
+    elif selected_month == "August 2026":
+        report_year, report_month = 2026, 8
+    else:  # September 2026
+        report_year, report_month = 2026, 9
     
     # Calculate balance days
     if current_date.year == report_year and current_date.month == report_month:
