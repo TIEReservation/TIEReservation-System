@@ -1,3 +1,579 @@
+# target_achievement_report.py - Multi-Month Support (Dec 2025 & Jan 2026)
+
+import streamlit as st
+from datetime import date, datetime
+import calendar
+import pandas as pd
+from supabase import create_client, Client
+from typing import List, Dict
+import os
+
+# -------------------------- Supabase --------------------------
+try:
+    supabase: Client = create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
+except:
+    try:
+        supabase: Client = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_KEY"])
+    except Exception as e:
+        st.error(f"Supabase config error: {e}")
+        st.stop()
+
+# -------------------------- Property Mapping --------------------------
+PROPERTY_MAPPING = {
+    "La Millionaire Luxury Resort": "La Millionaire Resort",
+    "Le Poshe Beach View": "Le Poshe Beach view",
+    "Le Poshe Beach view": "Le Poshe Beach view",
+    "Le Poshe Beach VIEW": "Le Poshe Beach view",
+    "Le Poshe Beachview": "Le Poshe Beach view",
+    "Millionaire": "La Millionaire Resort",
+    "Le Pondy Beach Side": "Le Pondy Beachside",
+    "Le Teera": "Le Terra",
+    "La Tamara Luxury Resort": "La Tamara Luxury",
+    "La Coromandel Luxury Resort": "La Coromandel Luxury",
+    "Le Poshe Luxury Resort": "Le Poshe Luxury",
+    "Le Poshe Suite Resort": "Le Poshe Suite",
+    "La Paradise Luxury Resort": "La Paradise Luxury",
+    "Villa Shakti Resort": "Villa Shakti",
+}
+reverse_mapping = {c: [] for c in set(PROPERTY_MAPPING.values())}
+for v, c in PROPERTY_MAPPING.items():
+    reverse_mapping[c].append(v)
+def normalize_property_name(prop_name: str) -> str:
+    if not prop_name:
+        return ""
+    return PROPERTY_MAPPING.get(prop_name.strip(), prop_name.strip())
+
+# -------------------------- Closed Properties --------------------------
+# These properties stopped operating from July 2026 onwards.
+# Their history (Dec 2025 - June 2026) is preserved; they are excluded
+# from the report for July 2026 and any later month.
+CLOSED_PROPERTIES = {
+    "La Millionaire Resort",
+    "Le Pondy Beachside",
+    "Le Poshe Beach view",
+}
+CLOSURE_YEAR_MONTH = (2026, 7)  # (year, month) from which closed properties are excluded
+# -------------------------- Monthly Targets --------------------------
+MONTHLY_TARGETS = {
+    "December 2025": {
+        "La Millionaire Resort": 2009899,
+        "Le Poshe Beach view": 777120,
+        "Le Park Resort": 862113,
+        "La Tamara Luxury": 1784373,
+        "Le Poshe Luxury": 1100469,
+        "Le Poshe Suite": 545150,
+        "Eden Beach Resort": 413706,
+        "La Antilia Luxury": 1275000,
+        "La Coromandel Luxury": 738878,
+        "La Tamara Suite": 657956,
+        "Villa Shakti": 947947,
+        "La Paradise Luxury": 591102,
+        "La Villa Heritage": 494469,
+        "La Paradise Residency": 450824,
+        "Le Pondy Beachside": 238796,
+        "Le Royce Villa": 214916,
+    },
+    "January 2026": {
+        "La Millionaire Resort": 1600000,
+        "Le Poshe Beach view": 750000,
+        "Le Park Resort": 650000,
+        "La Tamara Luxury": 1274000,
+        "Le Poshe Luxury": 861000,
+        "Le Poshe Suite": 338000,
+        "Eden Beach Resort": 355000,
+        "La Antilia Luxury": 859000,
+        "La Coromandel Luxury": 750000,
+        "La Tamara Suite": 575000,
+        "Villa Shakti": 618000,
+        "La Paradise Luxury": 397000,
+        "La Villa Heritage": 327000,
+        "La Paradise Residency": 462000,
+        "Le Pondy Beachside": 148000,
+        "Le Royce Villa": 130000,
+    },
+    "February 2026": {
+        "La Millionaire Resort": 1200000,
+        "Le Poshe Beach view": 461000,
+        "Le Park Resort": 450000,
+        "La Tamara Luxury": 998000,
+        "Le Poshe Luxury": 676000,
+        "Le Poshe Suite": 240000,
+        "Eden Beach Resort": 355000,
+        "La Antilia Luxury": 628000,
+        "La Coromandel Luxury": 450000,
+        "La Tamara Suite": 436000,
+        "Villa Shakti": 551000,
+        "La Paradise Luxury": 338000,
+        "La Villa Heritage": 312000,
+        "La Paradise Residency": 400000,
+        "Le Pondy Beachside": 100000,
+        "Le Royce Villa": 127000,
+    },
+    "March 2026": {
+        "La Millionaire Resort": 1200000,
+        "Le Poshe Beach view": 460000,
+        "Le Park Resort": 600000,
+        "La Tamara Luxury": 974000,
+        "Le Poshe Luxury": 692000,
+        "Le Poshe Suite": 263000,
+        "Eden Beach Resort": 350000,
+        "La Antilia Luxury": 674000,
+        "La Coromandel Luxury": 550000,
+        "La Tamara Suite": 361000,
+        "Villa Shakti": 430000,
+        "La Paradise Luxury": 280000,
+        "La Villa Heritage": 276000,
+        "La Paradise Residency": 365000,
+        "Le Pondy Beachside": 130000,
+        "Le Royce Villa": 120000,
+    },
+    "April 2026": {
+        "La Millionaire Resort": 1250000,
+        "Le Poshe Beach view": 495495,
+        "Le Park Resort": 720000,
+        "La Tamara Luxury": 974420,
+        "Le Poshe Luxury": 731312,
+        "Le Poshe Suite": 303960,
+        "Eden Beach Resort": 430000,
+        "La Antilia Luxury": 650413,
+        "La Coromandel Luxury": 550000,
+        "La Tamara Suite": 362165,
+        "Villa Shakti": 600000,
+        "La Paradise Luxury": 321315,
+        "La Villa Heritage": 295873,
+        "La Paradise Residency": 358496,
+        "Le Pondy Beachside": 97507,
+        "Le Royce Villa": 75845,
+    },
+    "May 2026": {
+        "La Millionaire Resort": 1200000,
+        "Le Park Resort": 700000,
+        "La Tamara Luxury": 1042000,
+        "Le Poshe Luxury": 816000,
+        "Le Poshe Suite": 350000,
+        "Eden Beach Resort": 430000,
+        "La Antilia Luxury": 690413,
+        "La Coromandel Luxury": 555000,
+        "La Tamara Suite": 495000,
+        "Villa Shakti": 595000,
+        "La Paradise Luxury": 337000,
+        "La Villa Heritage": 310000,
+        "La Paradise Residency": 420000,
+        "Le Pondy Beachside": 110000,
+        "Le Royce Villa": 100000,
+    },
+    "June 2026": {
+        "Le Park Resort": 700000,
+        "La Tamara Luxury": 1042000,
+        "Le Poshe Luxury": 816000,
+        "Le Poshe Suite": 350000,
+        "Eden Beach Resort": 425000,
+        "La Antilia Luxury": 670413,
+        "La Coromandel Luxury": 555000,
+        "La Tamara Suite": 485000,
+        "Villa Shakti": 560000,
+        "La Paradise Luxury": 320000,
+        "La Villa Heritage": 305000,
+        "La Paradise Residency": 410000,
+        "Le Pondy Beachside": 110000,
+        "Le Royce Villa": 100000,
+    },
+    "July 2026": {
+        "Le Park Resort": 625000,
+        "La Tamara Luxury": 1030000,
+        "Le Poshe Luxury": 685000,
+        "Le Poshe Suite": 325000,
+        "Eden Beach Resort": 350000,
+        "La Antilia Luxury": 550000,
+        "La Coromandel Luxury": 500000,
+        "La Tamara Suite": 435000,
+        "Villa Shakti": 575000,
+        "La Paradise Luxury": 280000,
+        "La Villa Heritage": 270000,
+        "La Paradise Residency": 315000,
+        "Le Royce Villa": 90000,
+    },
+    "August 2026": {
+        "Le Park Resort":  700000,
+        "La Tamara Luxury": 1130000,
+        "Le Poshe Luxury": 750000,
+        "Le Poshe Suite": 360000,
+        "Eden Beach Resort": 390000,
+        "La Antilia Luxury": 595000,
+        "La Coromandel Luxury": 500000,
+        "La Tamara Suite": 460000,
+        "Villa Shakti": 590000,
+        "La Paradise Luxury": 310000,
+        "La Villa Heritage": 290000,
+        "La Paradise Residency": 380000,
+        "Le Royce Villa": 90000,
+    },
+    "September 2026": {
+        "Le Park Resort":  650000,
+        "La Tamara Luxury": 1090000,
+        "Le Poshe Luxury": 730000,
+        "Le Poshe Suite": 350000,
+        "Eden Beach Resort": 370000,
+        "La Antilia Luxury": 580000,
+        "La Coromandel Luxury": 490000,
+        "La Tamara Suite": 450000,
+        "Villa Shakti": 550000,
+        "La Paradise Luxury": 300000,
+        "La Villa Heritage": 280000,
+        "La Paradise Residency": 365000,
+        "Le Royce Villa": 90000,
+    },
+    "October 2026": {
+        "Le Park Resort":  700000,
+        "La Tamara Luxury": 1130000,
+        "Le Poshe Luxury": 750000,
+        "Le Poshe Suite": 360000,
+        "Eden Beach Resort": 390000,
+        "La Antilia Luxury": 600000,
+        "La Coromandel Luxury": 550000,
+        "La Tamara Suite": 460000,
+        "Villa Shakti": 610000,
+        "La Paradise Luxury": 310000,
+        "La Villa Heritage": 290000,
+        "La Paradise Residency": 380000,
+        "Le Royce Villa": 100000,
+    },
+    "November 2026": {
+        "Le Park Resort":  700000,
+        "La Tamara Luxury": 1130000,
+        "Le Poshe Luxury": 750000,
+        "Le Poshe Suite": 360000,
+        "Eden Beach Resort": 390000,
+        "La Antilia Luxury": 600000,
+        "La Coromandel Luxury": 550000,
+        "La Tamara Suite": 460000,
+        "Villa Shakti": 610000,
+        "La Paradise Luxury": 310000,
+        "La Villa Heritage": 290000,
+        "La Paradise Residency": 380000,
+        "Le Royce Villa": 100000,
+    },
+}
+# -------------------------- Property Inventory --------------------------
+PROPERTY_INVENTORY = {
+    "Le Poshe Beach view": {"all": ["101","102","201","202","203","204","301","302","303","304","Day Use 1","Day Use 2","No Show"]},
+    "La Millionaire Resort": {"all": ["101","102","103","105","201","202","203","204","205","206","207","208","301","302","303","304","305","306","307","308","401","402","Day Use 1","Day Use 2","Day Use 3","Day Use 4","Day Use 5","No Show"]},
+    "Le Poshe Luxury": {"all": ["101","102","201","202","203","204","205","301","302","303","304","305","401","402","403","404","405","501","Day Use 1","Day Use 2","No Show"]},
+    "Le Poshe Suite": {"all": ["601","602","603","604","701","702","703","704","801","Day Use 1","Day Use 2","No Show"]},
+    "La Paradise Residency": {"all": ["101","102","103","201","202","203","301","302","303","304","Day Use 1","Day Use 2","No Show"]},
+    "La Paradise Luxury": {"all": ["101","102","103","201","202","203","Day Use 1","Day Use 2","No Show"]},
+    "La Villa Heritage": {"all": ["101","102","103","201","202","203","301","Day Use 1","Day Use 2","No Show"]},
+    "Le Pondy Beachside": {"all": ["101","102","201","202","Day Use 1","Day Use 2","No Show"]},
+    "Le Royce Villa": {"all": ["101","102","201","202","Day Use 1","Day Use 2","No Show"]},
+    "La Tamara Luxury": {"all": ["101","102","103","104","105","106","201","202","203","204","205","206","301","302","303","304","305","306","401","402","403","404","Day Use 1","Day Use 2","No Show"]},
+    "La Antilia Luxury": {"all": ["101","201","202","203","204","301","302","303","304","401","Day Use 1","Day Use 2","No Show"]},
+    "La Tamara Suite": {"all": ["101","102","103","104","201","202","203","204","205","206","Day Use 1","Day Use 2","No Show"]},
+    "Le Park Resort": {"all": ["111","222","333","444","555","666","Day Use 1","Day Use 2","No Show"]},
+    "Villa Shakti": {"all": ["101","102","201","201A","202","203","301","301A","302","303","401","Day Use 1","Day Use 2","No Show"]},
+    "Eden Beach Resort": {"all": ["101","102","103","201","202","Day Use 1","Day Use 2","No Show"]},
+    "La Coromandel Luxury": {"all": ["101","102","103","201","202","203","204","205","206","301","Day Use 1","Day Use 2","No Show"]},
+}
+
+def get_total_rooms(prop: str) -> int:
+    inv = PROPERTY_INVENTORY.get(prop, {"all": []})["all"]
+    return len([r for r in inv if not r.startswith(("Day Use", "No Show"))])
+
+# -------------------------- Safe Property Loading --------------------------
+def load_properties(report_year: int = None, report_month: int = None) -> List[str]:
+    """Return properties from PROPERTY_INVENTORY.
+    Closed properties (CLOSED_PROPERTIES) are excluded once the report
+    period reaches CLOSURE_YEAR_MONTH (July 2026 onwards), while still
+    being included for earlier months so history is preserved."""
+    all_props = sorted(list(PROPERTY_INVENTORY.keys()))
+    if report_year is None or report_month is None:
+        return all_props
+    if (report_year, report_month) >= CLOSURE_YEAR_MONTH:
+        return [p for p in all_props if p not in CLOSED_PROPERTIES]
+    return all_props
+
+# -------------------------- Booking Functions --------------------------
+@st.cache_data(ttl=1800)
+def load_combined_bookings(prop: str, start: date, end: date) -> List[Dict]:
+    """Load bookings with caching and optimized date filtering."""
+    normalized = normalize_property_name(prop)
+    query_props = [normalized] + reverse_mapping.get(normalized, [])
+    try:
+        direct = supabase.table("reservations").select("*")\
+            .in_("property_name", query_props)\
+            .gte("check_in", str(start))\
+            .lte("check_in", str(end))\
+            .in_("plan_status", ["Confirmed", "Completed"])\
+            .in_("payment_status", ["Partially Paid", "Fully Paid"])\
+            .execute().data or []
+
+        online = supabase.table("online_reservations").select("*")\
+            .in_("property", query_props)\
+            .gte("check_in", str(start))\
+            .lte("check_in", str(end))\
+            .in_("booking_status", ["Confirmed", "Completed"])\
+            .in_("payment_status", ["Partially Paid", "Fully Paid"])\
+            .execute().data or []
+
+        all_bookings = []
+        
+        for b in direct:
+            name = b.get("property_name")
+            if normalize_property_name(name) == prop:
+                b["property_name"] = prop
+                b["type"] = "direct"
+                all_bookings.append(b)
+        
+        for b in online:
+            name = b.get("property")
+            if normalize_property_name(name) == prop:
+                b["property_name"] = prop
+                b["type"] = "online"
+                all_bookings.append(b)
+                
+        return all_bookings
+    except Exception as e:
+        st.warning(f"Failed to load bookings for {prop}: {e}")
+        return []
+
+def filter_bookings_for_day(bookings: List[Dict], day: date):
+    return [b for b in bookings if date.fromisoformat(b["check_in"]) <= day < date.fromisoformat(b["check_out"])]
+
+def assign_inventory_numbers(daily: List[Dict], prop: str):
+    inv = PROPERTY_INVENTORY.get(prop, {"all": []})["all"]
+    lookup = {r.strip().lower(): r for r in inv}
+    assigned = []; used = set()
+    for b in daily:
+        rooms = [r.strip() for r in str(b.get("room_no") or "").split(",") if r.strip()]
+        assigned_rooms = []
+        for r in rooms:
+            key = r.lower()
+            if key in lookup and lookup[key] not in used:
+                assigned_rooms.append(lookup[key])
+                used.add(lookup[key])
+        for i, room in enumerate(assigned_rooms):
+            new_b = b.copy()
+            new_b["assigned_room"] = room
+            new_b["room_no"] = room
+            new_b["is_primary"] = (i == 0)
+            assigned.append(new_b)
+    return assigned, []
+
+def safe_float(v, default=0.0):
+    try: return float(v) if v not in [None, "", " "] else default
+    except: return default
+
+def compute_daily_metrics(bookings: List[Dict], prop: str, day: date) -> Dict:
+    daily = filter_bookings_for_day(bookings, day)
+    assigned, _ = assign_inventory_numbers(daily, prop)
+    rooms_sold = len({b.get("assigned_room") for b in assigned if b.get("assigned_room")})
+    
+    check_in_primaries = [b for b in assigned if b.get("is_primary", True) and date.fromisoformat(b["check_in"]) == day]
+    
+    room_charges = gst = commission = 0.0
+    for b in check_in_primaries:
+        booking_type = b.get("type", "")
+        if booking_type == "online":
+            total_amount = safe_float(b.get("booking_amount"))
+            gst += safe_float(b.get("ota_tax"))
+            commission += safe_float(b.get("ota_commission"))
+            room_charges += total_amount - safe_float(b.get("ota_tax"))
+        else:
+            room_charges += safe_float(b.get("total_tariff"))
+    
+    total = room_charges + gst
+    receivable = total - commission
+    
+    return {
+        "rooms_sold": rooms_sold, 
+        "total": total,
+        "receivable": receivable,
+        "commission": commission,
+        "gst": gst
+    }
+
+# -------------------------- MAIN REPORT --------------------------
+def build_target_achievement_report(props: List[str], dates: List[date], bookings_dict: Dict[str, List[Dict]], current_date: date, targets: Dict) -> pd.DataFrame:
+    rows = []
+    balance_days = len([d for d in dates if d > current_date])
+
+    for prop in props:
+        try:
+            target = targets.get(prop, 0)
+            total_rooms = get_total_rooms(prop)
+            total_room_nights = total_rooms * len(dates)
+
+            achieved = rooms_sold = future_booked = 0.0
+            commission_total = receivable_total = gst_total = 0.0
+            
+            for d in dates:
+                m = compute_daily_metrics(bookings_dict.get(prop, []), prop, d)
+                achieved += m["total"]
+                commission_total += m["commission"]
+                gst_total += m["gst"]
+                receivable_total += m["receivable"]
+                rooms_sold += m["rooms_sold"]
+                
+                if d > current_date:
+                    future_booked += m["rooms_sold"]
+
+            balance_rooms = max((total_rooms * balance_days) - future_booked, 0)
+            balance = target - achieved
+            achieved_pct = (achieved / target * 100) if target > 0 else 0
+            occupancy = (rooms_sold / total_room_nights * 100) if total_room_nights > 0 else 0
+            per_day_needed = max(balance, 0) / balance_days if balance_days > 0 else 0
+
+            rows.append({
+                "Property Name": prop, 
+                "Target": int(target), 
+                "Achieved": int(achieved),
+                "Balance": int(balance),
+                "Achieved %": round(achieved_pct, 1), 
+                "Total Rooms": int(total_room_nights),
+                "Rooms Sold": int(rooms_sold), 
+                "Occupancy %": round(occupancy, 1),
+                "Balance Rooms": int(balance_rooms),
+                "Per Day Needed": int(per_day_needed),
+                "GST": int(gst_total),
+                "Commission": int(commission_total),
+                "Receivable": int(receivable_total)
+            })
+        except Exception as e:
+            st.warning(f"Error processing {prop}: {e}")
+            continue
+
+    if rows:
+        totals = {k: sum(r[k] for r in rows if k != "Property Name") for k in rows[0].keys() if k != "Property Name"}
+        totals["Property Name"] = "TOTAL"
+        totals["Achieved %"] = round((totals["Achieved"] / totals["Target"] * 100) if totals["Target"] else 0, 1)
+        totals["Occupancy %"] = round((totals["Rooms Sold"] / totals["Total Rooms"] * 100) if totals["Total Rooms"] else 0, 1)
+        rows.append(totals)
+
+    df = pd.DataFrame(rows or [{"Property Name": "No Data"}])
+    df.insert(0, "S.No", range(1, len(df) + 1))
+    return df
+
+# -------------------------- TILL TODAY REPORT --------------------------
+def build_till_today_report(props: List[str], dates: List[date], bookings_dict: Dict[str, List[Dict]], current_date: date, targets: Dict) -> pd.DataFrame:
+    """Calculate metrics only till current system date - ARR based on total room inventory"""
+    rows = []
+    dates_till_today = [d for d in dates if d <= current_date]
+    
+    if not dates_till_today:
+        return pd.DataFrame([{"Property Name": "No Data"}])
+
+    for prop in props:
+        try:
+            target = targets.get(prop, 0)
+            total_rooms = get_total_rooms(prop)
+            total_room_nights_till_today = total_rooms * len(dates_till_today)
+
+            achieved_till_today = 0.0
+            rooms_sold_till_today = 0.0
+            
+            for d in dates_till_today:
+                m = compute_daily_metrics(bookings_dict.get(prop, []), prop, d)
+                achieved_till_today += m["total"]
+                rooms_sold_till_today += m["rooms_sold"]
+
+            unsold_rooms = total_room_nights_till_today - rooms_sold_till_today
+            achieved_pct = (achieved_till_today / target * 100) if target > 0 else 0
+            occupancy_pct = (rooms_sold_till_today / total_room_nights_till_today * 100) if total_room_nights_till_today > 0 else 0
+            current_arr = (achieved_till_today / total_room_nights_till_today) if total_room_nights_till_today > 0 else 0
+
+            rows.append({
+                "Property Name": prop,
+                "Target": int(target),
+                "Achieved": int(achieved_till_today),
+                "Percent": round(achieved_pct, 1),
+                "Occupancy %": round(occupancy_pct, 1),
+                "Sold Rooms": int(rooms_sold_till_today),
+                "Unsold Rooms": int(unsold_rooms),
+                "Current ARR": int(current_arr)
+            })
+        except Exception as e:
+            st.warning(f"Error processing {prop} (Till Today): {e}")
+            continue
+
+    if rows:
+        totals = {k: sum(r[k] for r in rows if k != "Property Name") for k in rows[0].keys() if k != "Property Name"}
+        totals["Property Name"] = "TOTAL"
+        totals["Percent"] = round((totals["Achieved"] / totals["Target"] * 100) if totals["Target"] else 0, 1)
+        
+        total_room_nights = sum(get_total_rooms(p) * len(dates_till_today) for p in props)
+        total_sold = sum(r["Sold Rooms"] for r in rows)
+        totals["Occupancy %"] = round((total_sold / total_room_nights * 100) if total_room_nights else 0, 1)
+        totals["Current ARR"] = int(totals["Achieved"] / total_room_nights) if total_room_nights else 0
+        rows.append(totals)
+
+    df = pd.DataFrame(rows or [{"Property Name": "No Data"}])
+    df.insert(0, "S.No", range(1, len(df) + 1))
+    return df
+
+# -------------------------- Styling --------------------------
+def style_dataframe(df):
+    if df is None or df.empty:
+        return df
+
+    def color_balance(row):
+        if "Achieved %" in row.index and row["Achieved %"] >= 90:
+            return ["color: green; font-weight: bold" if col == "Balance" else "" for col in row.index]
+        else:
+            return ["color: red; font-weight: bold" if col == "Balance" else "" for col in row.index]
+
+    def color_pct(val):
+        if isinstance(val, (int, float)):
+            color = "green" if val >= 70 else "orange" if val >= 50 else "red"
+            return f"color: {color}; font-weight: bold"
+        return ""
+
+    try:
+        styled = df.style.set_properties(**{"text-align": "center"})
+        
+        if "Balance" in df.columns and "Achieved %" in df.columns:
+            styled = styled.apply(color_balance, axis=1)
+        
+        pct_cols = [col for col in df.columns if "%" in col or "Percent" in col]
+        if pct_cols:
+            styled = styled.applymap(color_pct, subset=pct_cols)
+        
+        currency_cols = ["Target", "Achieved", "Balance", "GST", "Commission", "Receivable", "Current ARR", "Per Day Needed"]
+        for col in currency_cols:
+            if col in df.columns:
+                styled = styled.format({col: "₹{:,.0f}"})
+        
+        for col in pct_cols:
+            styled = styled.format({col: "{:.1f}%"})
+        
+        num_cols = ["Total Rooms", "Rooms Sold", "Balance Rooms", "Sold Rooms", "Unsold Rooms"]
+        for col in num_cols:
+            if col in df.columns:
+                styled = styled.format({col: "{:,.0f}"})
+        
+        styled = styled.set_table_styles([{"selector": "th", "props": "background-color: #4CAF50; color: white; font-weight: bold;"}])
+        return styled
+    except:
+        return df.style
+
+# -------------------------- UI --------------------------
+def show_target_achievement_report():
+    st.set_page_config(page_title="Target vs Achievement Report", layout="wide")
+    st.title("📊 Target vs Achievement Report")
+
+    # Month Selector
+    selected_month = st.selectbox(
+        "Select Month",
+        options=["December 2025", "January 2026", "February 2026", "March 2026", "April 2026", "May 2026", "June 2026", "July 2026", "August 2026", "September 2026", "October 2026", "November 2026"],
+        index=11  # Default to November 2026
+    )
+
+    current_date = date.today()
+    
+    # Parse selected month
+    if selected_month == "December 2025":
+        report_year, report_month = 2025, 12
+    elif selected_month == "January 2026":
+        report_year, report_month = 2026, 1
+    elif selected_month == "February 2026":
         report_year, report_month = 2026, 2
     elif selected_month == "March 2026":
         report_year, report_month = 2026, 3
